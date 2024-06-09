@@ -10,7 +10,6 @@ use rand::{seq::SliceRandom, thread_rng};
 use super::common::*;
 
 pub struct Network {
-    num_layers: usize,
     sizes: Vec<usize>,
     biases: Vec<A2>,
     weights: Vec<A2>,
@@ -27,7 +26,6 @@ impl Network {
         ).collect();
 
         Network {
-            num_layers: sizes.len(),
             sizes,
             biases,
             weights,
@@ -113,7 +111,7 @@ impl Network {
         ) * sigmoid_prime(zs.last().unwrap());
         nabla_w.push(last_delta.dot(&activations[activations.len() - 2].t()));
         nabla_b.push(last_delta);
-        for l in 2..self.num_layers {
+        for l in 2..self.num_layers() {
             let z = &zs[zs.len() - l];
             let sp = sigmoid_prime(z);
             let delta = self.weights[self.weights.len() - l + 1].t().dot(nabla_b.last().unwrap()) * sp;
@@ -136,6 +134,10 @@ impl Network {
 
     fn cost_derivative(output_activations: ArrayView2<f32>, y: ArrayView2<f32>) -> A2 {
         output_activations.into_owned() - y
+    }
+
+    fn num_layers(&self) -> usize {
+        self.sizes.len()
     }
 }
 

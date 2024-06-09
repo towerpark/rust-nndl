@@ -10,7 +10,6 @@ use super::{ common::*, activations::* };
 
 
 pub struct Network {
-    num_layers: usize,
     sizes: Vec<usize>,
     biases: Vec<A1>,
     weights: Vec<A2>,
@@ -27,7 +26,6 @@ impl Network {
         ).collect();
 
         Network {
-            num_layers: sizes.len(),
             sizes,
             biases,
             weights,
@@ -121,7 +119,7 @@ impl Network {
         //     gradients for every element of the weight matrix.
         nabla_w.push(last_delta.dot(&activations.pop().unwrap().reversed_axes()));
         nabla_b.push(last_delta);
-        for l in 2..self.num_layers {
+        for l in 2..self.num_layers() {
             let z = &zs[zs.len() - l];
             let sp = N::prime(z);
             let delta = self.weights[self.weights.len() - l + 1].t().dot(nabla_b.last().unwrap()) * sp;
@@ -163,5 +161,9 @@ impl Network {
     fn make_weighted_inputs(inputs: &A2, weights: &A2, biases: &A1) -> A2 {
         // Turn biases into a column vector and broadcast it
         weights.dot(inputs) + biases.to_shape((biases.len(), 1)).unwrap()
+    }
+
+    fn num_layers(&self) -> usize {
+        self.sizes.len()
     }
 }

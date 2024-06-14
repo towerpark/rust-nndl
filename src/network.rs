@@ -4,7 +4,7 @@ use std::iter;
 
 use ndarray::{Axis, Array, ArrayView2, CowArray};
 use ndarray_rand::RandomExt;
-use ndarray_rand::rand_distr::StandardNormal;
+use ndarray_rand::rand_distr::{ Normal, StandardNormal };
 use rand::{seq::SliceRandom, thread_rng};
 
 use super::common::*;
@@ -22,7 +22,9 @@ impl Network {
             Array::random((s, 1), StandardNormal)
         }).collect();
         let weights = (&sizes[..(sizes.len() - 1)]).iter().zip((&sizes[1..]).iter()).map(
-            |(&x, &y)| Array::random((y, x), StandardNormal)
+            |(&x, &y)| Array::random(
+                (y, x), Normal::new(0.0, 1.0 / (x as f32).sqrt()).unwrap()
+            )
         ).collect();
 
         Network {

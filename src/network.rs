@@ -3,11 +3,9 @@
 use std::iter;
 
 use ndarray::{Axis, Array, ArrayView2, CowArray};
-use ndarray_rand::RandomExt;
-use ndarray_rand::rand_distr::{ Normal, StandardNormal };
 use rand::{seq::SliceRandom, thread_rng};
 
-use super::common::*;
+use crate::{ common::*, weight_initializer::* };
 
 pub struct Network {
     sizes: Vec<usize>,
@@ -18,13 +16,14 @@ pub struct Network {
 
 impl Network {
     pub fn new(sizes: Vec<usize>) -> Self {
+        let wb_init = DefaultWeightInitializer;
+        // let wb_init = LargeWeightInitializer;
+
         let biases = (&sizes[1..]).iter().map(|&s| {
-            Array::random((s, 1), StandardNormal)
+            wb_init.make_biases(s)
         }).collect();
         let weights = (&sizes[..(sizes.len() - 1)]).iter().zip((&sizes[1..]).iter()).map(
-            |(&x, &y)| Array::random(
-                (y, x), Normal::new(0.0, 1.0 / (x as f32).sqrt()).unwrap()
-            )
+            |(&x, &y)| wb_init.make_weights(y, x)
         ).collect();
 
         Network {

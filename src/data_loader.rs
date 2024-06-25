@@ -1,4 +1,4 @@
-use ndarray::Array3;
+use ndarray::Array2;
 
 use mnist::*;
 
@@ -33,7 +33,7 @@ pub fn load_mnist(data_dir: &str) -> (TrainingData, ValidationData, ValidationDa
         (tst_img, TEST_SET_SIZE, "test"),
     ];
     let image_sets = image_info.map(|(blob, num_of_imgs, name)| {
-        Array3::from_shape_vec((num_of_imgs, 28 * 28, 1), blob)
+        Array2::from_shape_vec((num_of_imgs, 28 * 28), blob)
             .expect(std::format!("Error converting {} set images", name).as_str())
             .map(|x| (*x as f32) / 255.0_f32)
     });
@@ -43,8 +43,8 @@ pub fn load_mnist(data_dir: &str) -> (TrainingData, ValidationData, ValidationDa
         e[label as usize] = 1.0_f32;
         e
     }).flatten().collect();
-    let training_labels = Array3::from_shape_vec(
-        (TRAINING_SET_SIZE, OUTPUT_SIZE, 1), trn_vec_lbl,
+    let training_labels = Array2::from_shape_vec(
+        (TRAINING_SET_SIZE, OUTPUT_SIZE), trn_vec_lbl,
     ).expect("Error converting training labels");
 
     let [trn_imgs, val_imgs, tst_imgs] = image_sets;

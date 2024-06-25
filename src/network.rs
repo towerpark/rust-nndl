@@ -5,7 +5,6 @@ use std::iter;
 use ndarray::{Axis, Array, ArrayView2, CowArray};
 use ndarray_rand::RandomExt;
 use ndarray_rand::rand_distr::StandardNormal;
-use rand::{seq::SliceRandom, thread_rng};
 
 use super::common::*;
 
@@ -34,12 +33,12 @@ impl Network {
         }
     }
 
-    fn feedforward(&self, input: ArrayView2<f32>) -> A2 {
-        let a0 = input.into_owned();
+    fn feedforward(&self, inputs: ArrayView2<f32>) -> A2 {
+        let a0 = inputs.t().into_owned();
         iter::zip(self.biases.iter(), self.weights.iter()).fold(
             a0,
             |mut a, (b, w)| {
-                a = sigmoid_inplace(w.dot(&a) + b);
+                a = sigmoid_inplace(w.dot(&a) + b); // b is broadcast
                 a
             }
         )
@@ -60,56 +59,52 @@ impl Network {
         for i in 0..epochs {
             println!("====== Epoch {} started ======", i);
 
-            let mut indices: Vec<usize> = (0..data_size).collect();
-            indices.shuffle(&mut thread_rng());
-            for k in 0_usize..num_of_batches {
-                // println!("\tBatch {} ...", k);
-
-                let batch: Vec<(ArrayView2<f32>, ArrayView2<f32>)> = (
-                    indices[k * mini_batch_size..(k + 1) * mini_batch_size]
-                ).iter().map(|slot| training_data.elem(*slot)).collect();
-                self.update_mini_batch(batch, eta);
-            }
+            training_data.iter(mini_batch_size).for_each(
+                |(samples, truths)| self.update_mini_batch((samples.view(), truths.view()), eta)
+            );
             match &test_data {
                 Some(data) => {
-                    let n_test = data.len();
-                    println!("====== Epoch {}: {} / {} ======", i, self.evaluate(data), n_test);
+                    println!(
+                        "====== Epoch {}: {} / {} ======",
+                        i,
+                        self.evaluate(data, mini_batch_size),
+                        data.len(),
+                    );
                 },
                 None => println!("====== Epoch {} complete ======", i),
             }
         }
     }
 
-    fn update_mini_batch(&mut self, mini_batch: Vec<(ArrayView2<f32>, ArrayView2<f32>)>, eta: f32) {
-        let mut nabla_b: Vec<A2> = self.biases.iter().map(|b| Array::zeros(b.raw_dim())).collect();
-        let mut nabla_w: Vec<A2> = self.weights.iter().map(|w| Array::zeros(w.raw_dim())).collect();
-        let batch_size = mini_batch.len();
-        for (sample, truth) in mini_batch {
-            let (delta_nabla_b, delta_nabla_w) = self.backprop(sample, truth);
-            nabla_b = iter::zip(nabla_b, delta_nabla_b).map(|(nb, dnb)| nb + dnb).collect();
-            nabla_w = iter::zip(nabla_w, delta_nabla_w).map(|(nw, dnw)| nw + dnw).collect();
-        }
+    fn update_mini_batch(&mut self, mini_batch: (ArrayView2<f32>, ArrayView2<f32>), eta: f32) {
+        let batch_size = mini_batch.0.len_of(Axis(0));
         let scale = eta / (batch_size as f32);
+
+        let (nabla_b, nabla_w) = self.backprop(mini_batch);
+
         self.biases.iter_mut().zip(nabla_b).for_each(|(b, nb)| *b -= &(scale * nb));
         self.weights.iter_mut().zip(nabla_w).for_each(|(w, nw)| *w -= &(scale * nw));
     }
 
-    fn backprop(&self, input: ArrayView2<f32>, ground_truth: ArrayView2<f32>) -> (Vec<A2>, Vec<A2>) {
+    fn backprop(&self, inputs: (ArrayView2<f32>, ArrayView2<f32>)) -> (Vec<A2>, Vec<A2>) {
         let mut nabla_b = Vec::<A2>::new();
         let mut nabla_w = Vec::<A2>::new();
+        let samples = inputs.0.t();
+        let truths = inputs.1.t();
+        let batch_size = samples.len_of(Axis(1));
 
         // feedforward
-        let mut activations = vec![CowArray::from(input)];
+        let mut activations = vec![CowArray::from(samples)];
         let mut zs = Vec::<A2>::new();
         for (b, w) in iter::zip(self.biases.iter(), self.weights.iter()) {
-            let z = w.dot(activations.last().unwrap()) + b;
+            let z = w.dot(activations.last().unwrap()) + b; // b is broadcast
             activations.push(CowArray::from(sigmoid(&z)));
             zs.push(z);
         }
 
         // backward pass
         let last_delta = Self::cost_derivative(
-            activations.last().unwrap().view(), ground_truth
+            activations.last().unwrap().view(), truths
         ) * sigmoid_prime(zs.last().unwrap());
         nabla_w.push(last_delta.dot(&activations[activations.len() - 2].t()));
         nabla_b.push(last_delta);
@@ -121,17 +116,29 @@ impl Network {
             nabla_b.push(delta);
         }
 
+        // Sum nabla_b (nabla_w were already summed when performing matrix multiplications above)
+        let sum_mat = A2::ones((batch_size, 1));
+        nabla_b.iter_mut().for_each(|b| *b = b.dot(&sum_mat));
+
         (nabla_b.into_iter().rev().collect(), nabla_w.into_iter().rev().collect())
     }
 
-    fn evaluate(&self, test_data: &ValidationData) -> usize {
-        test_data.iter().map(|(x, y)| {
-            let output = self.feedforward(x).remove_axis(Axis(1));
-            let idx_of_max_prob = output.into_iter().enumerate()
-                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-                .map(|(idx, _)| idx).unwrap();
-            (idx_of_max_prob == y) as usize
-        }).sum()
+    fn evaluate(&self, test_data: &ValidationData, batch_size: usize) -> usize {
+        test_data.iter(batch_size)
+            .map(|(samples, truths)| {
+                let mut corrected = 0;
+                for (output, label) in iter::zip(self.feedforward(samples).columns(), truths) {
+                    let idx_of_max_prob = output.t().into_iter()
+                        .enumerate()
+                        // No Infs and NaNs so we can simply use partial_cmp() here
+                        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+                        .map(|(idx, _)| idx).unwrap();
+                    corrected += (idx_of_max_prob == (*label as usize)) as usize;
+
+                }
+                corrected
+            })
+            .sum()
     }
 
     fn cost_derivative(output_activations: ArrayView2<f32>, y: ArrayView2<f32>) -> A2 {

@@ -86,6 +86,10 @@ impl Network {
         self.weights.iter_mut().zip(nabla_w).for_each(|(w, nw)| *w -= &(scale * nw));
     }
 
+    // Return the gradients of weights and biases for all the layers computed
+    // with all the samples in the batch.
+    // A weight gradient for a single layer is a JxK matrix, while a biase
+    // graident is a J-sized column vector.
     fn backprop(&self, inputs: (ArrayView2<f32>, ArrayView2<f32>)) -> (Vec<A2>, Vec<A2>) {
         let mut nabla_b = Vec::<A2>::new();
         let mut nabla_w = Vec::<A2>::new();
@@ -94,6 +98,10 @@ impl Network {
         let batch_size = samples.len_of(Axis(1));
 
         // feedforward
+        //
+        // Both activations and errors are kept with an JxN matrix, where:
+        //   J is the number of neurons in the layer
+        //   N is the batch size
         let mut activations = vec![CowArray::from(samples)];
         let mut zs = Vec::<A2>::new();
         for (b, w) in iter::zip(self.biases.iter(), self.weights.iter()) {
@@ -103,9 +111,16 @@ impl Network {
         }
 
         // backward pass
+        //
+        // A JxN matrix
         let last_delta = Self::cost_derivative(
             activations.last().unwrap().view(), truths
         ) * sigmoid_prime(zs.last().unwrap());
+        // Activation's size is KxN, so weight graident has a size of JxN * NxK => JxK
+        //   Note:
+        //     Not only does the matrix multiplication compute gradients with
+        //     all the samples at the same time, it also sum the resulting
+        //     gradients for every element of the weight matrix.
         nabla_w.push(last_delta.dot(&activations[activations.len() - 2].t()));
         nabla_b.push(last_delta);
         for l in 2..self.num_layers {

@@ -23,6 +23,7 @@ impl TrainingData {
         self.images.len_of(Axis(0))
     }
 
+    // Each sample in a batch is represented by a column vector.
     // pub fn iter(&self, batch_size: usize) -> DataRandomIter<'_> {
     pub fn iter(&self, batch_size: usize) -> impl Iterator<Item = (A2, A2)> + '_ {
         // NOTE:

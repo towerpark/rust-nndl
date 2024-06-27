@@ -1,9 +1,10 @@
 use std::iter;
 
-use ndarray::{s, Axis, Array2, ArrayView2};
+use ndarray::{s, Axis, Array1, Array2, ArrayView2};
 // use ndarray_rand::RandomExt;
 use rand::{seq::SliceRandom, thread_rng};
 
+pub type A1 = Array1<f32>;
 pub type A2 = Array2<f32>;
 // pub type TrainingData = Vec<(A2, A2)>;
 // pub type ValidationData = Vec<(A2, usize)>;

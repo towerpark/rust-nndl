@@ -11,7 +11,7 @@ use super::common::*;
 pub struct Network {
     num_layers: usize,
     sizes: Vec<usize>,
-    biases: Vec<A2>,
+    biases: Vec<A1>,
     weights: Vec<A2>,
 }
 
@@ -19,7 +19,7 @@ pub struct Network {
 impl Network {
     pub fn new(sizes: Vec<usize>) -> Self {
         let biases = (&sizes[1..]).iter().map(|&s| {
-            Array::random((s, 1), StandardNormal)
+            Array::random(s, StandardNormal)
         }).collect();
         let weights = (&sizes[..(sizes.len() - 1)]).iter().zip((&sizes[1..]).iter()).map(
             |(&x, &y)| Array::random((y, x), StandardNormal)
@@ -38,7 +38,7 @@ impl Network {
         iter::zip(self.biases.iter(), self.weights.iter()).fold(
             a0,
             |mut a, (b, w)| {
-                a = sigmoid_inplace(w.dot(&a) + b); // b is broadcast
+                a = sigmoid_inplace(w.dot(&a) + b.to_shape((b.len(), 1)).unwrap()); // b is broadcast
                 a
             }
         )
@@ -90,12 +90,11 @@ impl Network {
     // with all the samples in the batch.
     // A weight gradient for a single layer is a JxK matrix, while a biase
     // graident is a J-sized column vector.
-    fn backprop(&self, inputs: (ArrayView2<f32>, ArrayView2<f32>)) -> (Vec<A2>, Vec<A2>) {
+    fn backprop(&self, inputs: (ArrayView2<f32>, ArrayView2<f32>)) -> (Vec<A1>, Vec<A2>) {
         let mut nabla_b = Vec::<A2>::new();
         let mut nabla_w = Vec::<A2>::new();
         let samples = inputs.0.t();
         let truths = inputs.1.t();
-        let batch_size = samples.len_of(Axis(1));
 
         // feedforward
         //
@@ -105,7 +104,8 @@ impl Network {
         let mut activations = vec![CowArray::from(samples)];
         let mut zs = Vec::<A2>::new();
         for (b, w) in iter::zip(self.biases.iter(), self.weights.iter()) {
-            let z = w.dot(activations.last().unwrap()) + b; // b is broadcast
+            // b is broadcast
+            let z = w.dot(activations.last().unwrap()) + b.to_shape((b.len(), 1)).unwrap();
             activations.push(CowArray::from(sigmoid(&z)));
             zs.push(z);
         }
@@ -132,10 +132,10 @@ impl Network {
         }
 
         // Sum nabla_b (nabla_w were already summed when performing matrix multiplications above)
-        let sum_mat = A2::ones((batch_size, 1));
-        nabla_b.iter_mut().for_each(|b| *b = b.dot(&sum_mat));
-
-        (nabla_b.into_iter().rev().collect(), nabla_w.into_iter().rev().collect())
+        (
+            nabla_b.iter().map(|nb| nb.sum_axis(Axis(1))).rev().collect(),
+            nabla_w.into_iter().rev().collect()
+        )
     }
 
     fn evaluate(&self, test_data: &ValidationData, batch_size: usize) -> usize {

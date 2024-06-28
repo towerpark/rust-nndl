@@ -2,7 +2,7 @@
 
 use std::iter;
 
-use ndarray::{Axis, Array, ArrayView2, CowArray};
+use ndarray::{Axis, Array, ArrayView2};
 use ndarray_rand::RandomExt;
 use ndarray_rand::rand_distr::StandardNormal;
 
@@ -60,7 +60,7 @@ impl Network {
             println!("====== Epoch {} started ======", i);
 
             training_data.iter(mini_batch_size).for_each(
-                |(samples, truths)| self.update_mini_batch((samples.view(), truths.view()), eta)
+                |(samples, truths)| self.update_mini_batch((samples, truths), eta)
             );
             match &test_data {
                 Some(data) => {
@@ -76,7 +76,7 @@ impl Network {
         }
     }
 
-    fn update_mini_batch(&mut self, mini_batch: (ArrayView2<f32>, ArrayView2<f32>), eta: f32) {
+    fn update_mini_batch(&mut self, mini_batch: (A2, A2), eta: f32) {
         let batch_size = mini_batch.0.len_of(Axis(0));
         let scale = eta / (batch_size as f32);
 
@@ -90,11 +90,11 @@ impl Network {
     // with all the samples in the batch.
     // A weight gradient for a single layer is a JxK matrix, while a biase
     // graident is a J-sized column vector.
-    fn backprop(&self, inputs: (ArrayView2<f32>, ArrayView2<f32>)) -> (Vec<A1>, Vec<A2>) {
+    fn backprop(&self, inputs: (A2, A2)) -> (Vec<A1>, Vec<A2>) {
         let mut nabla_b = Vec::<A2>::new();
         let mut nabla_w = Vec::<A2>::new();
-        let samples = inputs.0.t();
-        let truths = inputs.1.t();
+        let samples = inputs.0.reversed_axes();
+        let truths = inputs.1.reversed_axes();
 
         // feedforward
         //
@@ -102,12 +102,12 @@ impl Network {
         // where:
         //   J is the number of neurons in the layer
         //   N is the batch size
-        let mut activations = vec![CowArray::from(samples)];
+        let mut activations = vec![samples];
         let mut zs = Vec::<A2>::new();
         for (b, w) in iter::zip(self.biases.iter(), self.weights.iter()) {
             // b is broadcast
             let z = w.dot(activations.last().unwrap()) + b.to_shape((b.len(), 1)).unwrap();
-            activations.push(CowArray::from(sigmoid(&z)));
+            activations.push(sigmoid(&z));
             zs.push(z);
         }
 
@@ -115,20 +115,20 @@ impl Network {
         //
         // A JxN matrix
         let last_delta = Self::cost_derivative(
-            activations.last().unwrap().view(), truths
+            activations.pop().unwrap(), truths
         ) * sigmoid_prime(zs.last().unwrap());
         // Activation's size is KxN, so weight graident has a size of JxN * NxK => JxK
         //   Note:
         //     Not only does the matrix multiplication compute gradients with
         //     all the samples at the same time, it also sum the resulting
         //     gradients for every element of the weight matrix.
-        nabla_w.push(last_delta.dot(&activations[activations.len() - 2].t()));
+        nabla_w.push(last_delta.dot(&activations.pop().unwrap().reversed_axes()));
         nabla_b.push(last_delta);
         for l in 2..self.num_layers {
             let z = &zs[zs.len() - l];
             let sp = sigmoid_prime(z);
             let delta = self.weights[self.weights.len() - l + 1].t().dot(nabla_b.last().unwrap()) * sp;
-            nabla_w.push(delta.dot(&activations[activations.len() - l - 1].t()));
+            nabla_w.push(delta.dot(&activations.pop().unwrap().reversed_axes()));
             nabla_b.push(delta);
         }
 
@@ -157,8 +157,8 @@ impl Network {
             .sum()
     }
 
-    fn cost_derivative(output_activations: ArrayView2<f32>, y: ArrayView2<f32>) -> A2 {
-        output_activations.into_owned() - y
+    fn cost_derivative(output_activations: A2, y: A2) -> A2 {
+        output_activations - y
     }
 }
 

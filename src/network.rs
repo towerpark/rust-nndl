@@ -98,7 +98,8 @@ impl Network {
 
         // feedforward
         //
-        // Both activations and errors are kept with an JxN matrix, where:
+        // Both activations and weighted inputs are kept with an JxN matrix,
+        // where:
         //   J is the number of neurons in the layer
         //   N is the batch size
         let mut activations = vec![CowArray::from(samples)];

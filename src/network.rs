@@ -37,9 +37,8 @@ impl Network {
         let a0 = inputs.t().into_owned();
         iter::zip(self.biases.iter(), self.weights.iter()).fold(
             a0,
-            |mut a, (b, w)| {
-                a = sigmoid_inplace(w.dot(&a) + b.to_shape((b.len(), 1)).unwrap()); // b is broadcast
-                a
+            |a, (b, w)| {
+                sigmoid_inplace(Self::make_weighted_inputs(&a, w, b))
             }
         )
     }
@@ -105,8 +104,7 @@ impl Network {
         let mut activations = vec![samples];
         let mut zs = Vec::<A2>::new();
         for (b, w) in iter::zip(self.biases.iter(), self.weights.iter()) {
-            // b is broadcast
-            let z = w.dot(activations.last().unwrap()) + b.to_shape((b.len(), 1)).unwrap();
+            let z = Self::make_weighted_inputs(&activations.last().unwrap(), w, b);
             activations.push(sigmoid(&z));
             zs.push(z);
         }
@@ -159,6 +157,11 @@ impl Network {
 
     fn cost_derivative(output_activations: A2, y: A2) -> A2 {
         output_activations - y
+    }
+
+    fn make_weighted_inputs(inputs: &A2, weights: &A2, biases: &A1) -> A2 {
+        // Turn biases into a column vector and broadcast it
+        weights.dot(inputs) + biases.to_shape((biases.len(), 1)).unwrap()
     }
 }
 

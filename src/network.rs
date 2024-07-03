@@ -6,7 +6,8 @@ use ndarray::{Axis, Array, ArrayView2};
 use ndarray_rand::RandomExt;
 use ndarray_rand::rand_distr::StandardNormal;
 
-use super::common::*;
+use super::{ common::*, activations::* };
+
 
 pub struct Network {
     num_layers: usize,
@@ -33,13 +34,11 @@ impl Network {
         }
     }
 
-    fn feedforward(&self, inputs: ArrayView2<f32>) -> A2 {
+    fn feedforward<N: Activation>(&self, inputs: ArrayView2<f32>) -> A2 {
         let a0 = inputs.t().into_owned();
         iter::zip(self.biases.iter(), self.weights.iter()).fold(
             a0,
-            |a, (b, w)| {
-                sigmoid_inplace(Self::make_weighted_inputs(&a, w, b))
-            }
+            |a, (b, w)| { N::call(&Self::make_weighted_inputs(&a, w, b)) }
         )
     }
 
@@ -79,7 +78,7 @@ impl Network {
         let batch_size = mini_batch.0.len_of(Axis(0));
         let scale = eta / (batch_size as f32);
 
-        let (nabla_b, nabla_w) = self.backprop(mini_batch);
+        let (nabla_b, nabla_w) = self.backprop::<Sigmoid>(mini_batch);
 
         self.biases.iter_mut().zip(nabla_b).for_each(|(b, nb)| *b -= &(scale * nb));
         self.weights.iter_mut().zip(nabla_w).for_each(|(w, nw)| *w -= &(scale * nw));
@@ -89,7 +88,7 @@ impl Network {
     // with all the samples in the batch.
     // A weight gradient for a single layer is a JxK matrix, while a biase
     // graident is a J-sized column vector.
-    fn backprop(&self, inputs: (A2, A2)) -> (Vec<A1>, Vec<A2>) {
+    fn backprop<N: Activation>(&self, inputs: (A2, A2)) -> (Vec<A1>, Vec<A2>) {
         let mut nabla_b = Vec::<A2>::new();
         let mut nabla_w = Vec::<A2>::new();
         let samples = inputs.0.reversed_axes();
@@ -105,7 +104,7 @@ impl Network {
         let mut zs = Vec::<A2>::new();
         for (b, w) in iter::zip(self.biases.iter(), self.weights.iter()) {
             let z = Self::make_weighted_inputs(&activations.last().unwrap(), w, b);
-            activations.push(sigmoid(&z));
+            activations.push(N::call(&z));
             zs.push(z);
         }
 
@@ -114,7 +113,7 @@ impl Network {
         // A JxN matrix
         let last_delta = Self::cost_derivative(
             activations.pop().unwrap(), truths
-        ) * sigmoid_prime(zs.last().unwrap());
+        ) * N::prime(zs.last().unwrap());
         // Activation's size is KxN, so weight graident has a size of JxN * NxK => JxK
         //   Note:
         //     Not only does the matrix multiplication compute gradients with
@@ -124,7 +123,7 @@ impl Network {
         nabla_b.push(last_delta);
         for l in 2..self.num_layers {
             let z = &zs[zs.len() - l];
-            let sp = sigmoid_prime(z);
+            let sp = N::prime(z);
             let delta = self.weights[self.weights.len() - l + 1].t().dot(nabla_b.last().unwrap()) * sp;
             nabla_w.push(delta.dot(&activations.pop().unwrap().reversed_axes()));
             nabla_b.push(delta);
@@ -141,7 +140,9 @@ impl Network {
         test_data.iter(batch_size)
             .map(|(samples, truths)| {
                 let mut corrected = 0;
-                for (output, label) in iter::zip(self.feedforward(samples).columns(), truths) {
+                for (output, label) in iter::zip(
+                    self.feedforward::<Sigmoid>(samples).columns(), truths
+                ) {
                     let idx_of_max_prob = output.t().into_iter()
                         .enumerate()
                         // No Infs and NaNs so we can simply use partial_cmp() here
@@ -163,24 +164,4 @@ impl Network {
         // Turn biases into a column vector and broadcast it
         weights.dot(inputs) + biases.to_shape((biases.len(), 1)).unwrap()
     }
-}
-
-
-fn sigmoid_scalar(z: f32) -> f32 {
-    1.0f32 / (1.0f32 + std::f32::consts::E.powf(-z))
-}
-
-fn sigmoid(z: &A2) -> A2 {
-    z.mapv(|e| sigmoid_scalar(e))
-}
-
-fn sigmoid_inplace(mut z: A2) -> A2 {
-    z.map_inplace(|e| *e = sigmoid_scalar(*e));
-    z
-}
-
-fn sigmoid_prime(z: &A2) -> A2 {
-    let mut s = sigmoid(z);
-    s.map_inplace(|e| *e *= 1.0_f32 - *e);
-    s
 }

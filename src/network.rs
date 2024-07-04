@@ -2,11 +2,9 @@
 
 use std::iter;
 
-use ndarray::{Axis, Array, ArrayView2};
-use ndarray_rand::RandomExt;
-use ndarray_rand::rand_distr::StandardNormal;
+use ndarray::{Axis, ArrayView2};
 
-use super::{ common::*, activations::* };
+use super::{ activations::*, common::*, wb_initializers::* };
 
 
 pub struct Network {
@@ -18,11 +16,12 @@ pub struct Network {
 
 impl Network {
     pub fn new(sizes: Vec<usize>) -> Self {
+        type WBInit = WBInitializerDefault;
         let biases = (&sizes[1..]).iter().map(|&s| {
-            Array::random(s, StandardNormal)
+            WBInit::make_biases(s)
         }).collect();
         let weights = (&sizes[..(sizes.len() - 1)]).iter().zip((&sizes[1..]).iter()).map(
-            |(&x, &y)| Array::random((y, x), StandardNormal)
+            |(&x, &y)| WBInit::make_weights(y, x)
         ).collect();
 
         Network {

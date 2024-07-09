@@ -6,6 +6,7 @@ use rand::{seq::SliceRandom, thread_rng};
 
 pub type A1 = Array1<f32>;
 pub type A2 = Array2<f32>;
+pub type V2<'a> = ArrayView2<'a, f32>;
 // pub type TrainingData = Vec<(A2, A2)>;
 // pub type ValidationData = Vec<(A2, usize)>;
 
@@ -79,7 +80,7 @@ impl ValidationData {
         self.labels.len()
     }
 
-    pub fn iter(&self, batch_size: usize) -> impl Iterator<Item = (ArrayView2<f32>, &[u8])> {
+    pub fn iter(&self, batch_size: usize) -> impl Iterator<Item = (V2, &[u8])> {
         let total = self.len();
         iter::zip(self.images.outer_iter(), self.labels.iter())
             .enumerate()

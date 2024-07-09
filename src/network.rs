@@ -2,7 +2,7 @@
 
 use std::iter;
 
-use ndarray::{Axis, ArrayView2};
+use ndarray::Axis;
 
 use super::{ activations::*, common::*, wb_initializers::* };
 
@@ -31,7 +31,7 @@ impl Network {
         }
     }
 
-    fn feedforward<N: Activation>(&self, inputs: ArrayView2<f32>) -> A2 {
+    fn feedforward<N: Activation>(&self, inputs: V2) -> A2 {
         let a0 = inputs.t().into_owned();
         iter::zip(self.biases.iter(), self.weights.iter()).fold(
             a0,

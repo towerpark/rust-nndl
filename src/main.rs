@@ -7,8 +7,8 @@ fn main() {
     let mut net = Network::new(vec![784, 30, 10]);
 
     let start_time = Instant::now();
-    // epochs = 30, batch_size = 10, lr = 3.0
-    net.sgd(trn_data, 30, 10, 3.0, Some(val_data));
+    // Learning rate: 3.0 for MSE loss, 0.5 for cross-entropy loss
+    net.sgd(trn_data, 30, 10, 0.5, Some(val_data));
     println!("Done: time({:?})", start_time.elapsed());
 }
 

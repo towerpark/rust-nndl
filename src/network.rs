@@ -4,7 +4,7 @@ use std::iter;
 
 use ndarray::Axis;
 
-use super::{ activations::*, common::*, wb_initializers::* };
+use super::{ activations::*, common::*, losses::*, wb_initializers::* };
 
 
 pub struct Network {
@@ -75,7 +75,7 @@ impl Network {
         let batch_size = mini_batch.0.len_of(Axis(0));
         let scale = eta / (batch_size as f32);
 
-        let (nabla_b, nabla_w) = self.backprop::<Sigmoid>(mini_batch);
+        let (nabla_b, nabla_w) = self.backprop::<Sigmoid, CrossEntropyLoss>(mini_batch);
 
         self.biases.iter_mut().zip(nabla_b).for_each(|(b, nb)| *b -= &(scale * nb));
         self.weights.iter_mut().zip(nabla_w).for_each(|(w, nw)| *w -= &(scale * nw));
@@ -85,7 +85,11 @@ impl Network {
     // with all the samples in the batch.
     // A weight gradient for a single layer is a JxK matrix, while a biase
     // graident is a J-sized column vector.
-    fn backprop<N: Activation>(&self, inputs: (A2, A2)) -> (Vec<A1>, Vec<A2>) {
+    fn backprop<N, L>(&self, inputs: (A2, A2)) -> (Vec<A1>, Vec<A2>)
+    where
+        N: Activation,
+        L: Loss,
+    {
         let mut nabla_b = Vec::<A2>::new();
         let mut nabla_w = Vec::<A2>::new();
         let samples = inputs.0.reversed_axes();
@@ -108,9 +112,9 @@ impl Network {
         // backward pass
         //
         // A JxN matrix
-        let last_delta = Self::cost_derivative(
-            activations.pop().unwrap(), truths
-        ) * N::prime(zs.last().unwrap());
+        let last_delta = L::delta::<N>(
+            activations.pop().unwrap(), &truths.view(), zs.last().unwrap()
+        );
         // Activation's size is KxN, so weight graident has a size of JxN * NxK => JxK
         //   Note:
         //     Not only does the matrix multiplication compute gradients with
@@ -151,10 +155,6 @@ impl Network {
                 corrected
             })
             .sum()
-    }
-
-    fn cost_derivative(output_activations: A2, y: A2) -> A2 {
-        output_activations - y
     }
 
     fn make_weighted_inputs(inputs: &A2, weights: &A2, biases: &A1) -> A2 {

@@ -8,7 +8,7 @@ fn main() {
 
     let start_time = Instant::now();
     // Learning rate: 3.0 for MSE loss, 0.5 for cross-entropy loss
-    net.sgd(trn_data, 30, 10, 0.5, Some(val_data));
+    net.sgd(trn_data, 30, 10, 0.5, 5.0, Some(val_data));
     println!("Done: time({:?})", start_time.elapsed());
 }
 

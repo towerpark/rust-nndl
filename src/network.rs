@@ -45,6 +45,7 @@ impl Network {
         epochs: usize,
         mini_batch_size: usize,
         eta: f32,
+        lmbda: f32,
         test_data: Option<ValidationData>,
     ) {
         let data_size = training_data.len();
@@ -55,7 +56,9 @@ impl Network {
             println!("====== Epoch {} started ======", i);
 
             training_data.iter(mini_batch_size).for_each(
-                |(samples, truths)| self.update_mini_batch((samples, truths), eta)
+                |(samples, truths)| self.update_mini_batch(
+                    (samples, truths), eta, lmbda, training_data.len()
+                )
             );
             match &test_data {
                 Some(data) => {
@@ -71,14 +74,19 @@ impl Network {
         }
     }
 
-    fn update_mini_batch(&mut self, mini_batch: (A2, A2), eta: f32) {
+    fn update_mini_batch(
+        &mut self, mini_batch: (A2, A2), eta: f32, lmbda: f32, n: usize
+    ) {
         let batch_size = mini_batch.0.len_of(Axis(0));
         let scale = eta / (batch_size as f32);
+        let weight_decay = 1.0 - eta * lmbda / n as f32;
 
         let (nabla_b, nabla_w) = self.backprop::<Sigmoid, CrossEntropyLoss>(mini_batch);
 
         self.biases.iter_mut().zip(nabla_b).for_each(|(b, nb)| *b -= &(scale * nb));
-        self.weights.iter_mut().zip(nabla_w).for_each(|(w, nw)| *w -= &(scale * nw));
+        self.weights.iter_mut().zip(nabla_w).for_each(
+            |(w, nw)| *w = weight_decay * &*w - &(scale * nw)
+        );
     }
 
     // Return the gradients of weights and biases for all the layers computed

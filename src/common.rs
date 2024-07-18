@@ -25,6 +25,14 @@ impl TrainingData {
         self.images.len_of(Axis(0))
     }
 
+    pub fn images(&self) -> &A2 {
+        &self.images
+    }
+
+    pub fn labels(&self) -> &A2 {
+        &self.labels
+    }
+
     // Each sample in a batch is represented by a column vector.
     // pub fn iter(&self, batch_size: usize) -> DataRandomIter<'_> {
     pub fn iter(&self, batch_size: usize) -> impl Iterator<Item = (A2, A2)> + '_ {
@@ -78,6 +86,14 @@ impl ValidationData {
 
     pub fn len(&self) -> usize {
         self.labels.len()
+    }
+
+    pub fn images(&self) -> &A2 {
+        &self.images
+    }
+
+    pub fn labels(&self) -> &Vec<u8> {
+        &self.labels
     }
 
     pub fn iter(&self, batch_size: usize) -> impl Iterator<Item = (V2, &[u8])> {

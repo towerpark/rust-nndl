@@ -7,6 +7,14 @@ use ndarray::Axis;
 use super::{ activations::*, common::*, losses::*, wb_initializers::* };
 
 
+pub struct Metrics {
+    pub training_loss: Option<Vec<f32>>,
+    pub training_accuracy: Option<Vec<usize>>,
+    pub evaluation_loss: Option<Vec<f32>>,
+    pub evaluation_accuracy: Option<Vec<usize>>,
+}
+
+
 pub struct Network {
     sizes: Vec<usize>,
     biases: Vec<A1>,
@@ -46,7 +54,8 @@ impl Network {
         mini_batch_size: usize,
         eta: f32,
         lmbda: f32,
-        test_data: Option<ValidationData>,
+        evaluation_data: Option<ValidationData>,
+        metrics: &mut Metrics,
     ) {
         let data_size = training_data.len();
         let num_of_batches = data_size / mini_batch_size;
@@ -60,17 +69,32 @@ impl Network {
                     (samples, truths), eta, lmbda, training_data.len()
                 )
             );
-            match &test_data {
-                Some(data) => {
-                    println!(
-                        "====== Epoch {}: {} / {} ======",
-                        i,
-                        self.evaluate(data, mini_batch_size),
-                        data.len(),
-                    );
-                },
-                None => println!("====== Epoch {} complete ======", i),
+            println!("====== Epoch {} training complete ======", i);
+
+            // Calculate metrics
+            if let Some(ref mut tl) = metrics.training_loss {
+                let loss = self.total_loss(
+                    training_data.images(), training_data.labels(), lmbda
+                );
+                tl.push(loss);
+                println!("Loss on training data: {}", loss);
             }
+            if let Some(ref eval_data) = evaluation_data {
+                if let Some(ref mut ea) = metrics.evaluation_accuracy {
+                    let acc = self.accuracy(
+                        eval_data.images(),
+                        &Network::vectorized_result(eval_data.labels()),
+                    );
+                    ea.push(acc);
+                    println!(
+                        "Accuracy on evaluation data: {} / {}",
+                        acc,
+                        eval_data.len(),
+                    );
+                }
+            }
+
+            println!("====== Epoch {} done ======", i);
         }
     }
 
@@ -172,5 +196,20 @@ impl Network {
 
     fn num_layers(&self) -> usize {
         self.sizes.len()
+    }
+
+    fn total_loss(&self, _images: &A2, _labels: &A2, _lmbda: f32) -> f32 {
+        0.
+    }
+
+    fn accuracy(&self, _images: &A2, _labels: &A2) -> usize {
+        0
+    }
+
+    fn vectorized_result(labels: &Vec<u8>) -> A2 {
+        A2::from_shape_fn(
+            (labels.len(), 10),
+            |(m, n)| (n == labels[m] as usize) as i32 as f32,
+        )
     }
 }

@@ -47,7 +47,7 @@ impl Network {
         )
     }
 
-    pub fn sgd(
+    pub fn sgd<L>(
         &mut self,
         training_data: TrainingData,
         epochs: usize,
@@ -56,7 +56,10 @@ impl Network {
         lmbda: f32,
         evaluation_data: Option<ValidationData>,
         metrics: &mut Metrics,
-    ) {
+    )
+    where
+        L: Loss,
+    {
         let data_size = training_data.len();
         let num_of_batches = data_size / mini_batch_size;
         println!("Number of training samples: {}", data_size);
@@ -65,7 +68,7 @@ impl Network {
             println!("====== Epoch {} started ======", i);
 
             training_data.iter(mini_batch_size).for_each(
-                |(samples, truths)| self.update_mini_batch(
+                |(samples, truths)| self.update_mini_batch::<L>(
                     (samples, truths), eta, lmbda, training_data.len()
                 )
             );
@@ -73,17 +76,40 @@ impl Network {
 
             // Calculate metrics
             if let Some(ref mut tl) = metrics.training_loss {
-                let loss = self.total_loss(
+                let loss = self.total_loss::<L>(
                     training_data.images(), training_data.labels(), lmbda
                 );
                 tl.push(loss);
                 println!("Loss on training data: {}", loss);
             }
+            if let Some(ref mut ta) = metrics.training_accuracy {
+                let acc = self.accuracy(
+                    training_data.images(),
+                    training_data.labels(),
+                    mini_batch_size,
+                );
+                ta.push(acc);
+                println!(
+                    "Accuracy on training data: {} / {}",
+                    acc,
+                    training_data.len(),
+                );
+            }
             if let Some(ref eval_data) = evaluation_data {
+                if let Some(ref mut el) = metrics.evaluation_loss {
+                    let loss = self.total_loss::<L>(
+                        eval_data.images(),
+                        &vectorized_result(eval_data.labels()),
+                        lmbda,
+                    );
+                    el.push(loss);
+                    println!("Loss on evaluation data: {}", loss);
+                }
                 if let Some(ref mut ea) = metrics.evaluation_accuracy {
                     let acc = self.accuracy(
                         eval_data.images(),
-                        &Network::vectorized_result(eval_data.labels()),
+                        &vectorized_result(eval_data.labels()),
+                        mini_batch_size,
                     );
                     ea.push(acc);
                     println!(
@@ -98,14 +124,17 @@ impl Network {
         }
     }
 
-    fn update_mini_batch(
+    fn update_mini_batch<L>(
         &mut self, mini_batch: (A2, A2), eta: f32, lmbda: f32, n: usize
-    ) {
+    )
+    where
+        L: Loss,
+    {
         let batch_size = mini_batch.0.len_of(Axis(0));
         let scale = eta / (batch_size as f32);
         let weight_decay = 1.0 - eta * lmbda / n as f32;
 
-        let (nabla_b, nabla_w) = self.backprop::<Sigmoid, CrossEntropyLoss>(mini_batch);
+        let (nabla_b, nabla_w) = self.backprop::<Sigmoid, L>(mini_batch);
 
         self.biases.iter_mut().zip(nabla_b).for_each(|(b, nb)| *b -= &(scale * nb));
         self.weights.iter_mut().zip(nabla_w).for_each(
@@ -169,7 +198,23 @@ impl Network {
         )
     }
 
-    fn evaluate(&self, test_data: &ValidationData, batch_size: usize) -> usize {
+    fn make_weighted_inputs(inputs: &A2, weights: &A2, biases: &A1) -> A2 {
+        // Turn biases into a column vector and broadcast it
+        weights.dot(inputs) + biases.to_shape((biases.len(), 1)).unwrap()
+    }
+
+    fn num_layers(&self) -> usize {
+        self.sizes.len()
+    }
+
+    fn total_loss<L>(&self, _images: &A2, _labels: &A2, _lmbda: f32) -> f32
+    where
+        L: Loss,
+    {
+        0.
+    }
+
+    fn accuracy(&self, _images: &A2, _labels: &A2, batch_size: usize) -> usize {
         test_data.iter(batch_size)
             .map(|(samples, truths)| {
                 let mut corrected = 0;
@@ -187,29 +232,5 @@ impl Network {
                 corrected
             })
             .sum()
-    }
-
-    fn make_weighted_inputs(inputs: &A2, weights: &A2, biases: &A1) -> A2 {
-        // Turn biases into a column vector and broadcast it
-        weights.dot(inputs) + biases.to_shape((biases.len(), 1)).unwrap()
-    }
-
-    fn num_layers(&self) -> usize {
-        self.sizes.len()
-    }
-
-    fn total_loss(&self, _images: &A2, _labels: &A2, _lmbda: f32) -> f32 {
-        0.
-    }
-
-    fn accuracy(&self, _images: &A2, _labels: &A2) -> usize {
-        0
-    }
-
-    fn vectorized_result(labels: &Vec<u8>) -> A2 {
-        A2::from_shape_fn(
-            (labels.len(), 10),
-            |(m, n)| (n == labels[m] as usize) as i32 as f32,
-        )
     }
 }

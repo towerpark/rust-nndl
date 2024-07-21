@@ -1,41 +1,36 @@
 use std::iter;
 
-use ndarray::{s, Axis, Array1, Array2, ArrayView2};
+use ndarray::{s, Axis, Array1, Array2, ArrayView2, CowArray, Ix2};
 // use ndarray_rand::RandomExt;
 use rand::{seq::SliceRandom, thread_rng};
 
 pub type A1 = Array1<f32>;
 pub type A2 = Array2<f32>;
 pub type V2<'a> = ArrayView2<'a, f32>;
-// pub type TrainingData = Vec<(A2, A2)>;
-// pub type ValidationData = Vec<(A2, usize)>;
+pub type C2<'a> = CowArray<'a, f32, Ix2>;
 
-pub struct TrainingData {
+
+pub struct Dataset {
     images: A2,
     labels: A2,
 }
 
 
-impl TrainingData {
-    pub fn new(images: A2, labels: A2) -> Self {
-        TrainingData { images, labels }
+impl Dataset {
+    pub fn new(images: A2, labels: Vec<u8>) -> Self {
+        Self {
+            images,
+            labels: Self::vectorized_result(&labels),
+        }
     }
 
     pub fn len(&self) -> usize {
         self.images.len_of(Axis(0))
     }
 
-    pub fn images(&self) -> &A2 {
-        &self.images
-    }
-
-    pub fn labels(&self) -> &A2 {
-        &self.labels
-    }
-
     // Each sample in a batch is represented by a column vector.
     // pub fn iter(&self, batch_size: usize) -> DataRandomIter<'_> {
-    pub fn iter(&self, batch_size: usize) -> impl Iterator<Item = (A2, A2)> + '_ {
+    pub fn iter(&self, batch_size: usize, shuffle: bool) -> impl Iterator<Item = (A2, A2)> + '_ {
         // NOTE:
         //   Create a view with non-contiguous slices is not supported, so we have to copy here.
         //   (https://github.com/rust-ndarray/ndarray/discussions/1050#discussioncomment-1114786)
@@ -55,6 +50,13 @@ impl TrainingData {
                 self.labels.select(Axis(0), sample_indices),
             )
         })
+    }
+
+    fn vectorized_result(labels: &Vec<u8>) -> A2 {
+        A2::from_shape_fn(
+            (labels.len(), 10),
+            |(m, n)| (n == labels[m] as usize) as i32 as f32,
+        )
     }
 }
 

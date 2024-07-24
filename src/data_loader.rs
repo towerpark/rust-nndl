@@ -2,14 +2,14 @@ use ndarray::Array2;
 
 use mnist::*;
 
-use super::common::*;
+use super::common::Dataset;
+
 
 // TODO: data_dir: &str => Path
-pub fn load_mnist(data_dir: &str) -> (TrainingData, ValidationData, ValidationData) {
+pub fn load_mnist(data_dir: &str) -> [Dataset; 3] {
     const TRAINING_SET_SIZE: usize = 50_000;
     const VALIDATION_SET_SIZE: usize = 10_000;
     const TEST_SET_SIZE: usize = 10_000;
-    const OUTPUT_SIZE: usize = 10;
 
     // Deconstruct the returned Mnist struct.
     let Mnist {
@@ -38,20 +38,11 @@ pub fn load_mnist(data_dir: &str) -> (TrainingData, ValidationData, ValidationDa
             .map(|x| (*x as f32) / 255.0_f32)
     });
 
-    let trn_vec_lbl: Vec<f32> = trn_lbl.into_iter().map(|label| {
-        let mut e = [0.0_f32; OUTPUT_SIZE];
-        e[label as usize] = 1.0_f32;
-        e
-    }).flatten().collect();
-    let training_labels = Array2::from_shape_vec(
-        (TRAINING_SET_SIZE, OUTPUT_SIZE), trn_vec_lbl,
-    ).expect("Error converting training labels");
-
     let [trn_imgs, val_imgs, tst_imgs] = image_sets;
 
-    (
-        TrainingData::new(trn_imgs, training_labels),
-        ValidationData::new(val_imgs, val_lbl),
-        ValidationData::new(tst_imgs, tst_lbl),
-    )
+    [
+        Dataset::new(trn_imgs, trn_lbl),
+        Dataset::new(val_imgs, val_lbl),
+        Dataset::new(tst_imgs, tst_lbl),
+    ]
 }

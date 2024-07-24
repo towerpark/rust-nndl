@@ -75,7 +75,7 @@ impl Network {
                 ).sum();
                 tl.push(loss);
                 println!(
-                    "Loss on training data: {} (avg = {:.6})",
+                    "Loss on training data: {:.2} (avg = {:.4})",
                     loss,
                     loss / training_data.len() as f32,
                 );
@@ -101,7 +101,7 @@ impl Network {
                     ).sum();
                     el.push(loss);
                     println!(
-                        "Loss on evaluation data: {} (avg = {:.6})",
+                        "Loss on evaluation data: {:.2} (avg = {:.4})",
                         loss,
                         loss / eval_data.len() as f32,
                     );
@@ -120,7 +120,7 @@ impl Network {
                 }
             }
 
-            println!("====== Epoch {} done ======", i);
+            println!("====== Epoch {} done ======\n", i);
         }
     }
 
@@ -130,7 +130,8 @@ impl Network {
     where
         L: Loss,
     {
-        let batch_size = mini_batch[0].len_of(Axis(0));
+        // Batch size is the length of axis 0 because inputs are column vectors
+        let batch_size = mini_batch[0].len_of(Axis(1));
         let scale = eta / (batch_size as f32);
         let weight_decay = 1.0 - eta * lmbda / n as f32;
 
@@ -153,8 +154,7 @@ impl Network {
     {
         let mut nabla_b = Vec::<A2>::new();
         let mut nabla_w = Vec::<A2>::new();
-        // let [samples, truths] = inputs;
-        let [samples, truths] = inputs.map(C2::reversed_axes);
+        let [samples, truths] = inputs;
 
         // feedforward
         //
@@ -211,14 +211,12 @@ impl Network {
     where
         L: Loss,
     {
-        0.
-        // let outputs = self.feedforward::<Sigmoid>(images);
-        // L::func(&outputs, &labels)
+        let outputs = self.feedforward::<Sigmoid>(images);
+        L::func(&outputs, &labels)
     }
 
     fn accuracy(&self, images: C2, labels: C2) -> usize {
-        // let a = self.feedforward::<Sigmoid>(images);
-        let a = self.feedforward::<Sigmoid>(images.reversed_axes());
+        let a = self.feedforward::<Sigmoid>(images);
         let preds = a.columns().into_iter().map(|c| {
             c.into_iter()
             .enumerate()
@@ -227,7 +225,7 @@ impl Network {
             .map(|(idx, _)| idx).unwrap()
         });
         let truths = labels
-            .rows() // .columns()
+            .columns()
             .into_iter().map(|c| {
             c.into_iter().
             position(|&e| 1.0 == e).unwrap()

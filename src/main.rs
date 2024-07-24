@@ -7,9 +7,9 @@ fn main() {
     let mut net = Network::new(vec![784, 30, 10]);
 
     let mut metrics = Metrics {
-        training_loss: None,
+        training_loss: Some(Vec::new()),
         training_accuracy: Some(Vec::new()),
-        evaluation_loss: None,
+        evaluation_loss: Some(Vec::new()),
         evaluation_accuracy: Some(Vec::new()),
     };
     let start_time = Instant::now();

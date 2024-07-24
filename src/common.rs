@@ -63,8 +63,7 @@ impl Dataset {
         }
 
         (0..total).step_by(batch_size).map(
-            // move |i| sampler(i).map(C2::reversed_axes)
-            sampler
+            move |i| sampler(i).map(C2::reversed_axes)
         )
     }
 

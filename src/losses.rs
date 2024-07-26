@@ -5,7 +5,6 @@ use ndarray::Zip;
 
 
 pub trait Loss {
-    #[allow(dead_code)]
     fn func(outputs: &C2, truths: &C2) -> f32;
 
     fn delta<N: Activation>(

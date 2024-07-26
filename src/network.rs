@@ -68,11 +68,9 @@ impl Network {
 
             // Calculate metrics
             if let Some(ref mut tl) = metrics.training_loss {
-                let loss = training_data.iter(mini_batch_size, false).map(
-                    |[samples, truths]| self.total_loss::<L>(
-                        samples, truths, lmbda
-                    )
-                ).sum();
+                let loss = self.total_loss::<L>(
+                    &training_data, lmbda, mini_batch_size
+                );
                 tl.push(loss);
                 println!(
                     "Loss on training data: {:.2} (avg = {:.4})",
@@ -81,9 +79,7 @@ impl Network {
                 );
             }
             if let Some(ref mut ta) = metrics.training_accuracy {
-                let acc = training_data.iter(mini_batch_size, false).map(
-                    |[samples, truths]| self.accuracy(samples, truths)
-                ).sum();
+                let acc = self.accuracy(&training_data, mini_batch_size);
                 ta.push(acc);
                 println!(
                     "Accuracy on training data: {}/{} ({:.2}%)",
@@ -94,11 +90,9 @@ impl Network {
             }
             if let Some(ref eval_data) = evaluation_data {
                 if let Some(ref mut el) = metrics.evaluation_loss {
-                    let loss = eval_data.iter(mini_batch_size, false).map(
-                        |[samples, truths]| self.total_loss::<L>(
-                            samples, truths, lmbda
-                        )
-                    ).sum();
+                    let loss = self.total_loss::<L>(
+                        eval_data, lmbda, mini_batch_size
+                    );
                     el.push(loss);
                     println!(
                         "Loss on evaluation data: {:.2} (avg = {:.4})",
@@ -107,9 +101,7 @@ impl Network {
                     );
                 }
                 if let Some(ref mut ea) = metrics.evaluation_accuracy {
-                    let acc = eval_data.iter(mini_batch_size, false).map(
-                        |[samples, truths]| self.accuracy(samples, truths)
-                    ).sum();
+                    let acc = self.accuracy(&eval_data, mini_batch_size);
                     ea.push(acc);
                     println!(
                         "Accuracy on evaluation data: {}/{} ({:.2}%)",
@@ -207,33 +199,37 @@ impl Network {
         self.sizes.len()
     }
 
-    fn total_loss<L>(&self, images: C2, labels: C2, lmbda: f32) -> f32
+    fn total_loss<L>(
+        &self, dataset: &Dataset, _lmbda: f32, batch_size: usize
+    ) -> f32
     where
         L: Loss,
     {
-        let outputs = self.feedforward::<Sigmoid>(images);
-        L::func(&outputs, &labels)
+        dataset.iter(batch_size, false).map(|[images, labels]| {
+            let outputs = self.feedforward::<Sigmoid>(images);
+            L::func(&outputs, &labels)
+            // let mut loss = 
+            // lmbda / dataset.len();
+        }).sum()
     }
 
-    fn accuracy(&self, images: C2, labels: C2) -> usize {
-        let a = self.feedforward::<Sigmoid>(images);
-        let preds = a.columns().into_iter().map(|c| {
-            c.into_iter()
-            .enumerate()
-            // No Infs and NaNs so we can simply use partial_cmp() here
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .map(|(idx, _)| idx).unwrap()
-        });
-        let truths = labels
-            .columns()
-            .into_iter().map(|c| {
-            c.into_iter().
-            position(|&e| 1.0 == e).unwrap()
-        });
-        
-        iter::zip(preds, truths).map(
-            |(p, t)| (p == t) as usize
-        ).sum()
+    fn accuracy(&self, dataset: &Dataset, batch_size: usize) -> usize {
+        dataset.iter(batch_size, false).map(|[images, labels]| {
+            let outputs = self.feedforward::<Sigmoid>(images);
+            let preds = outputs.columns().into_iter().map(|c| {
+                c.into_iter()
+                    .enumerate()
+                    // No Infs and NaNs so we can simply use partial_cmp() here
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+                    .map(|(idx, _)| idx).unwrap()
+            });
+            let truths = labels.columns().into_iter().map(|c| {
+                c.into_iter().position(|&e| 1.0 == e).unwrap()
+            });
+            iter::zip(preds, truths).map(
+                |(p, t)| (p == t) as usize
+            ).sum::<usize>()
+        }).sum()
     }
 
     fn feedforward<'a, N: Activation>(&self, inputs: C2<'a>) -> C2<'a> {

@@ -72,11 +72,7 @@ impl Network {
                     &training_data, lmbda, mini_batch_size
                 );
                 tl.push(loss);
-                println!(
-                    "Loss on training data: {:.2} (avg = {:.4})",
-                    loss,
-                    loss / training_data.len() as f32,
-                );
+                println!("Loss on training data: {:.4}", loss);
             }
             if let Some(ref mut ta) = metrics.training_accuracy {
                 let acc = self.accuracy(&training_data, mini_batch_size);
@@ -94,11 +90,7 @@ impl Network {
                         eval_data, lmbda, mini_batch_size
                     );
                     el.push(loss);
-                    println!(
-                        "Loss on evaluation data: {:.2} (avg = {:.4})",
-                        loss,
-                        loss / eval_data.len() as f32,
-                    );
+                    println!("Loss on evaluation data: {:.4}", loss);
                 }
                 if let Some(ref mut ea) = metrics.evaluation_accuracy {
                     let acc = self.accuracy(&eval_data, mini_batch_size);
@@ -200,17 +192,21 @@ impl Network {
     }
 
     fn total_loss<L>(
-        &self, dataset: &Dataset, _lmbda: f32, batch_size: usize
+        &self, dataset: &Dataset, lmbda: f32, batch_size: usize
     ) -> f32
     where
         L: Loss,
     {
-        dataset.iter(batch_size, false).map(|[images, labels]| {
-            let outputs = self.feedforward::<Sigmoid>(images);
-            L::func(&outputs, &labels)
-            // let mut loss = 
-            // lmbda / dataset.len();
-        }).sum()
+        let vanilla_loss = dataset.iter(batch_size, false).map(
+            |[images, labels]| {
+                let outputs = self.feedforward::<Sigmoid>(images);
+                L::func(&outputs, &labels)
+            }
+        ).sum::<f32>();
+        let l2_term = 0.5 * lmbda * self.weights.iter().map(
+            |w| (w * w).sum()
+        ).sum::<f32>();
+        (vanilla_loss + l2_term) / dataset.len() as f32
     }
 
     fn accuracy(&self, dataset: &Dataset, batch_size: usize) -> usize {

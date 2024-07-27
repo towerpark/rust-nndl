@@ -32,7 +32,8 @@ pub struct QuadraticLoss;
 
 impl Loss for QuadraticLoss {
     fn func(outputs: &C2, truths: &C2) -> f32 {
-        (outputs - truths).fold(0.0, |s, e| s + e * e) * 0.5
+        let diff = outputs - truths;
+        (&diff * &diff).sum() * 0.5
     }
 
     fn delta<N: Activation>(

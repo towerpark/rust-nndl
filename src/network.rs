@@ -7,6 +7,14 @@ use ndarray::Axis;
 use super::{ activations::*, common::*, losses::*, wb_initializers::* };
 
 
+pub struct Metrics {
+    pub training_loss: Option<Vec<f32>>,
+    pub training_accuracy: Option<Vec<usize>>,
+    pub evaluation_loss: Option<Vec<f32>>,
+    pub evaluation_accuracy: Option<Vec<usize>>,
+}
+
+
 pub struct Network {
     sizes: Vec<usize>,
     biases: Vec<A1>,
@@ -31,23 +39,19 @@ impl Network {
         }
     }
 
-    fn feedforward<N: Activation>(&self, inputs: V2) -> A2 {
-        let a0 = inputs.t().into_owned();
-        iter::zip(self.biases.iter(), self.weights.iter()).fold(
-            a0,
-            |a, (b, w)| { N::call(&Self::make_weighted_inputs(&a, w, b)) }
-        )
-    }
-
-    pub fn sgd(
+    pub fn sgd<L>(
         &mut self,
-        training_data: TrainingData,
+        training_data: Dataset,
         epochs: usize,
         mini_batch_size: usize,
         eta: f32,
         lmbda: f32,
-        test_data: Option<ValidationData>,
-    ) {
+        evaluation_data: Option<Dataset>,
+        metrics: &mut Metrics,
+    )
+    where
+        L: Loss,
+    {
         let data_size = training_data.len();
         let num_of_batches = data_size / mini_batch_size;
         println!("Number of training samples: {}", data_size);
@@ -55,33 +59,67 @@ impl Network {
         for i in 0..epochs {
             println!("====== Epoch {} started ======", i);
 
-            training_data.iter(mini_batch_size).for_each(
-                |(samples, truths)| self.update_mini_batch(
-                    (samples, truths), eta, lmbda, training_data.len()
+            training_data.iter(mini_batch_size, true).for_each(
+                |batch| self.update_mini_batch::<L>(
+                    batch, eta, lmbda, training_data.len()
                 )
             );
-            match &test_data {
-                Some(data) => {
-                    println!(
-                        "====== Epoch {}: {} / {} ======",
-                        i,
-                        self.evaluate(data, mini_batch_size),
-                        data.len(),
-                    );
-                },
-                None => println!("====== Epoch {} complete ======", i),
+            println!("Training complete");
+
+            // Calculate metrics
+            if let Some(ref mut tl) = metrics.training_loss {
+                let loss = self.total_loss::<L>(
+                    &training_data, lmbda, mini_batch_size
+                );
+                tl.push(loss);
+                println!("Loss on training data: {:.4}", loss);
             }
+            if let Some(ref mut ta) = metrics.training_accuracy {
+                let acc = self.accuracy(&training_data, mini_batch_size);
+                ta.push(acc);
+                println!(
+                    "Accuracy on training data: {}/{} ({:.2}%)",
+                    acc,
+                    training_data.len(),
+                    100.0 * acc as f32 / training_data.len() as f32,
+                );
+            }
+            if let Some(ref eval_data) = evaluation_data {
+                if let Some(ref mut el) = metrics.evaluation_loss {
+                    let loss = self.total_loss::<L>(
+                        eval_data, lmbda, mini_batch_size
+                    );
+                    el.push(loss);
+                    println!("Loss on evaluation data: {:.4}", loss);
+                }
+                if let Some(ref mut ea) = metrics.evaluation_accuracy {
+                    let acc = self.accuracy(&eval_data, mini_batch_size);
+                    ea.push(acc);
+                    println!(
+                        "Accuracy on evaluation data: {}/{} ({:.2}%)",
+                        acc,
+                        eval_data.len(),
+                        100.0 * acc as f32 / eval_data.len() as f32,
+                    );
+                }
+            }
+
+            println!("====== Epoch {} done ======\n", i);
         }
     }
 
-    fn update_mini_batch(
-        &mut self, mini_batch: (A2, A2), eta: f32, lmbda: f32, n: usize
-    ) {
-        let batch_size = mini_batch.0.len_of(Axis(0));
+    fn update_mini_batch<L>(
+        &mut self, mini_batch: [C2; 2], eta: f32, lmbda: f32, n: usize
+    )
+    where
+        L: Loss,
+    {
+        // Batch size is the length of axis 0 because inputs are column vectors
+        let batch_size = mini_batch[0].len_of(Axis(1));
         let scale = eta / (batch_size as f32);
         let weight_decay = 1.0 - eta * lmbda / n as f32;
 
-        let (nabla_b, nabla_w) = self.backprop::<Sigmoid, CrossEntropyLoss>(mini_batch);
+        let (nabla_b, nabla_w) = self.backprop::<Sigmoid, L>(mini_batch);
 
         self.biases.iter_mut().zip(nabla_b).for_each(|(b, nb)| *b -= &(scale * nb));
         self.weights.iter_mut().zip(nabla_w).for_each(
@@ -93,15 +131,14 @@ impl Network {
     // with all the samples in the batch.
     // A weight gradient for a single layer is a JxK matrix, while a biase
     // graident is a J-sized column vector.
-    fn backprop<N, L>(&self, inputs: (A2, A2)) -> (Vec<A1>, Vec<A2>)
+    fn backprop<N, L>(&self, inputs: [C2; 2]) -> (Vec<A1>, Vec<A2>)
     where
         N: Activation,
         L: Loss,
     {
         let mut nabla_b = Vec::<A2>::new();
         let mut nabla_w = Vec::<A2>::new();
-        let samples = inputs.0.reversed_axes();
-        let truths = inputs.1.reversed_axes();
+        let [samples, truths] = inputs;
 
         // feedforward
         //
@@ -113,7 +150,7 @@ impl Network {
         let mut zs = Vec::<A2>::new();
         for (b, w) in iter::zip(self.biases.iter(), self.weights.iter()) {
             let z = Self::make_weighted_inputs(&activations.last().unwrap(), w, b);
-            activations.push(N::call(&z));
+            activations.push(C2::from(N::call(&z)));
             zs.push(z);
         }
 
@@ -121,7 +158,7 @@ impl Network {
         //
         // A JxN matrix
         let last_delta = L::delta::<N>(
-            activations.pop().unwrap(), &truths.view(), zs.last().unwrap()
+            activations.pop().unwrap(), truths, zs.last().unwrap()
         );
         // Activation's size is KxN, so weight graident has a size of JxN * NxK => JxK
         //   Note:
@@ -145,32 +182,58 @@ impl Network {
         )
     }
 
-    fn evaluate(&self, test_data: &ValidationData, batch_size: usize) -> usize {
-        test_data.iter(batch_size)
-            .map(|(samples, truths)| {
-                let mut corrected = 0;
-                for (output, label) in iter::zip(
-                    self.feedforward::<Sigmoid>(samples).columns(), truths
-                ) {
-                    let idx_of_max_prob = output.t().into_iter()
-                        .enumerate()
-                        // No Infs and NaNs so we can simply use partial_cmp() here
-                        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-                        .map(|(idx, _)| idx).unwrap();
-                    corrected += (idx_of_max_prob == (*label as usize)) as usize;
-
-                }
-                corrected
-            })
-            .sum()
-    }
-
-    fn make_weighted_inputs(inputs: &A2, weights: &A2, biases: &A1) -> A2 {
+    fn make_weighted_inputs(inputs: &C2, weights: &A2, biases: &A1) -> A2 {
         // Turn biases into a column vector and broadcast it
         weights.dot(inputs) + biases.to_shape((biases.len(), 1)).unwrap()
     }
 
     fn num_layers(&self) -> usize {
         self.sizes.len()
+    }
+
+    fn total_loss<L>(
+        &self, dataset: &Dataset, lmbda: f32, batch_size: usize
+    ) -> f32
+    where
+        L: Loss,
+    {
+        let vanilla_loss = dataset.iter(batch_size, false).map(
+            |[images, labels]| {
+                let outputs = self.feedforward::<Sigmoid>(images);
+                L::func(&outputs, &labels)
+            }
+        ).sum::<f32>();
+        let l2_term = 0.5 * lmbda * self.weights.iter().map(
+            |w| (w * w).sum()
+        ).sum::<f32>();
+        (vanilla_loss + l2_term) / dataset.len() as f32
+    }
+
+    fn accuracy(&self, dataset: &Dataset, batch_size: usize) -> usize {
+        dataset.iter(batch_size, false).map(|[images, labels]| {
+            let outputs = self.feedforward::<Sigmoid>(images);
+            let preds = outputs.columns().into_iter().map(|c| {
+                c.into_iter()
+                    .enumerate()
+                    // No Infs and NaNs so we can simply use partial_cmp() here
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+                    .map(|(idx, _)| idx).unwrap()
+            });
+            let truths = labels.columns().into_iter().map(|c| {
+                c.into_iter().position(|&e| 1.0 == e).unwrap()
+            });
+            iter::zip(preds, truths).map(
+                |(p, t)| (p == t) as usize
+            ).sum::<usize>()
+        }).sum()
+    }
+
+    fn feedforward<'a, N: Activation>(&self, inputs: C2<'a>) -> C2<'a> {
+        iter::zip(self.biases.iter(), self.weights.iter()).fold(
+            inputs,
+            |a, (b, w)| {
+                C2::from(N::call(&Self::make_weighted_inputs(&a, w, b)))
+            },
+        )
     }
 }

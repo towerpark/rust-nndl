@@ -1,24 +1,27 @@
-use std::iter;
+use std::cmp;
 
-use ndarray::{s, Axis, Array1, Array2, ArrayView2};
+use ndarray::{s, Axis, Array1, Array2, CowArray, Ix2};
 // use ndarray_rand::RandomExt;
 use rand::{seq::SliceRandom, thread_rng};
 
 pub type A1 = Array1<f32>;
 pub type A2 = Array2<f32>;
-pub type V2<'a> = ArrayView2<'a, f32>;
-// pub type TrainingData = Vec<(A2, A2)>;
-// pub type ValidationData = Vec<(A2, usize)>;
+pub type C2<'a> = CowArray<'a, f32, Ix2>;
 
-pub struct TrainingData {
+
+// Data is kept in row vectors
+pub struct Dataset {
     images: A2,
     labels: A2,
 }
 
 
-impl TrainingData {
-    pub fn new(images: A2, labels: A2) -> Self {
-        TrainingData { images, labels }
+impl Dataset {
+    pub fn new(images: A2, labels: Vec<u8>) -> Self {
+        Self {
+            images,
+            labels: Self::vectorized_result(&labels),
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -27,26 +30,48 @@ impl TrainingData {
 
     // Each sample in a batch is represented by a column vector.
     // pub fn iter(&self, batch_size: usize) -> DataRandomIter<'_> {
-    pub fn iter(&self, batch_size: usize) -> impl Iterator<Item = (A2, A2)> + '_ {
-        // NOTE:
-        //   Create a view with non-contiguous slices is not supported, so we have to copy here.
-        //   (https://github.com/rust-ndarray/ndarray/discussions/1050#discussioncomment-1114786)
-
+    pub fn iter<'a>(
+        &'a self, batch_size: usize, shuffle: bool
+    ) -> impl Iterator<Item = [C2; 2]> {
         let total = self.len();
-        let mut indices: Vec<usize> = (0..total).collect();
-        indices.shuffle(&mut thread_rng());
+        let sampler: Box<dyn Fn(usize) -> [C2<'a>; 2]>;
 
-        (0..(total / batch_size)).map(move |bi| {
-            let begin = bi * batch_size;
-            let mut end = begin + batch_size;
-            end = if end > total { total } else { end };
-            let sample_indices = &indices[begin..end];
+        if shuffle {
+            let mut indices: Vec<usize> = (0..total).collect();
+            indices.shuffle(&mut thread_rng());
+            sampler = Box::new(move |begin| {
+                let end = cmp::min(begin + batch_size, total);
+                let sample_indices = &indices[begin..end];
+                // NOTE:
+                //   Create a view with non-contiguous slices is not supported,
+                //   so we have to copy here.
+                //   (https://github.com/rust-ndarray/ndarray/discussions/1050#discussioncomment-1114786)
+                [
+                    C2::from(self.images.select(Axis(0), sample_indices)),
+                    C2::from(self.labels.select(Axis(0), sample_indices)),
+                ]
+            });
+        }
+        else {
+            sampler = Box::new(move |begin| {
+                let end = cmp::min(begin + batch_size, total);
+                [
+                    C2::from(self.images.slice(s![begin..end, ..])),
+                    C2::from(self.labels.slice(s![begin..end, ..])),
+                ]
+            });
+        }
 
-            (
-                self.images.select(Axis(0), sample_indices),
-                self.labels.select(Axis(0), sample_indices),
-            )
-        })
+        (0..total).step_by(batch_size).map(
+            move |i| sampler(i).map(C2::reversed_axes)
+        )
+    }
+
+    fn vectorized_result(labels: &Vec<u8>) -> A2 {
+        A2::from_shape_fn(
+            (labels.len(), 10),
+            |(m, n)| (n == labels[m] as usize) as i32 as f32,
+        )
     }
 }
 
@@ -65,32 +90,3 @@ impl TrainingData {
 //         todo!();
 //     }
 // }
-
-pub struct ValidationData {
-    images: A2,
-    labels: Vec<u8>,
-}
-
-impl ValidationData {
-    pub fn new(images: A2, labels: Vec<u8>) -> Self {
-        ValidationData { images, labels }
-    }
-
-    pub fn len(&self) -> usize {
-        self.labels.len()
-    }
-
-    pub fn iter(&self, batch_size: usize) -> impl Iterator<Item = (V2, &[u8])> {
-        let total = self.len();
-        iter::zip(self.images.outer_iter(), self.labels.iter())
-            .enumerate()
-            .step_by(batch_size)
-            .map(move |(idx, _)| {
-                let mut end = idx + batch_size;
-                end = if end > total { total } else { end };
-                let batched_images = self.images.slice(s![idx..end, ..]);
-                let batched_labels = &self.labels[idx..end];
-                (batched_images, batched_labels)
-            })
-    }
-}

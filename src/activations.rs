@@ -1,12 +1,10 @@
 use super::common::A2;
 
-
 pub trait Activation {
     fn call(z: &A2) -> A2;
 
     fn prime(z: &A2) -> A2;
 }
-
 
 pub struct Sigmoid;
 

@@ -4,7 +4,6 @@ use mnist::*;
 
 use super::common::Dataset;
 
-
 // TODO: data_dir: &str => Path
 pub fn load_mnist(data_dir: &str) -> [Dataset; 3] {
     const TRAINING_SET_SIZE: usize = 50_000;

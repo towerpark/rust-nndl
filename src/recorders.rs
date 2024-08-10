@@ -9,7 +9,6 @@ pub trait Recorder {
     fn load(file_path: &Path) -> io::Result<Network>;
 }
 
-
 pub struct JSONRecorder;
 
 impl Recorder for JSONRecorder {

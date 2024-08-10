@@ -1,10 +1,9 @@
 use std::iter;
 
 use ndarray::Axis;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use super::{activations::*, common::*, losses::*, wb_initializers::*};
-
 
 pub struct Metrics {
     pub training_loss: Option<Vec<f32>>,
@@ -13,7 +12,6 @@ pub struct Metrics {
     pub evaluation_accuracy: Option<Vec<usize>>,
 }
 
-
 #[derive(Serialize, Deserialize)]
 pub struct Network {
     sizes: Vec<usize>,
@@ -21,16 +19,18 @@ pub struct Network {
     weights: Vec<A2>,
 }
 
-
 impl Network {
     pub fn new(sizes: Vec<usize>) -> Self {
         type WBInit = WBInitializerDefault;
-        let biases = (&sizes[1..]).iter().map(|&s| {
-            WBInit::make_biases(s)
-        }).collect();
-        let weights = (&sizes[..(sizes.len() - 1)]).iter().zip((&sizes[1..]).iter()).map(
-            |(&x, &y)| WBInit::make_weights(y, x)
-        ).collect();
+        let biases = (&sizes[1..])
+            .iter()
+            .map(|&s| WBInit::make_biases(s))
+            .collect();
+        let weights = (&sizes[..(sizes.len() - 1)])
+            .iter()
+            .zip((&sizes[1..]).iter())
+            .map(|(&x, &y)| WBInit::make_weights(y, x))
+            .collect();
 
         Network {
             sizes,
@@ -48,8 +48,7 @@ impl Network {
         lmbda: f32,
         evaluation_data: Option<Dataset>,
         metrics: &mut Metrics,
-    )
-    where
+    ) where
         L: Loss,
     {
         let data_size = training_data.len();
@@ -59,18 +58,14 @@ impl Network {
         for i in 0..epochs {
             println!("====== Epoch {} started ======", i);
 
-            training_data.iter(mini_batch_size, true).for_each(
-                |batch| self.update_mini_batch::<L>(
-                    batch, eta, lmbda, training_data.len()
-                )
-            );
+            training_data.iter(mini_batch_size, true).for_each(|batch| {
+                self.update_mini_batch::<L>(batch, eta, lmbda, training_data.len())
+            });
             println!("Training complete");
 
             // Calculate metrics
             if let Some(ref mut tl) = metrics.training_loss {
-                let loss = self.total_loss::<L>(
-                    &training_data, lmbda, mini_batch_size
-                );
+                let loss = self.total_loss::<L>(&training_data, lmbda, mini_batch_size);
                 tl.push(loss);
                 println!("Loss on training data: {:.4}", loss);
             }
@@ -86,9 +81,7 @@ impl Network {
             }
             if let Some(ref eval_data) = evaluation_data {
                 if let Some(ref mut el) = metrics.evaluation_loss {
-                    let loss = self.total_loss::<L>(
-                        eval_data, lmbda, mini_batch_size
-                    );
+                    let loss = self.total_loss::<L>(eval_data, lmbda, mini_batch_size);
                     el.push(loss);
                     println!("Loss on evaluation data: {:.4}", loss);
                 }
@@ -108,9 +101,7 @@ impl Network {
         }
     }
 
-    fn update_mini_batch<L>(
-        &mut self, mini_batch: [C2; 2], eta: f32, lmbda: f32, n: usize
-    )
+    fn update_mini_batch<L>(&mut self, mini_batch: [C2; 2], eta: f32, lmbda: f32, n: usize)
     where
         L: Loss,
     {
@@ -121,10 +112,14 @@ impl Network {
 
         let (nabla_b, nabla_w) = self.backprop::<Sigmoid, L>(mini_batch);
 
-        self.biases.iter_mut().zip(nabla_b).for_each(|(b, nb)| *b -= &(scale * nb));
-        self.weights.iter_mut().zip(nabla_w).for_each(
-            |(w, nw)| *w = weight_decay * &*w - &(scale * nw)
-        );
+        self.biases
+            .iter_mut()
+            .zip(nabla_b)
+            .for_each(|(b, nb)| *b -= &(scale * nb));
+        self.weights
+            .iter_mut()
+            .zip(nabla_w)
+            .for_each(|(w, nw)| *w = weight_decay * &*w - &(scale * nw));
     }
 
     // Return the gradients of weights and biases for all the layers computed
@@ -157,9 +152,7 @@ impl Network {
         // backward pass
         //
         // A JxN matrix
-        let last_delta = L::delta::<N>(
-            activations.pop().unwrap(), truths, zs.last().unwrap()
-        );
+        let last_delta = L::delta::<N>(activations.pop().unwrap(), truths, zs.last().unwrap());
         // Activation's size is KxN, so weight graident has a size of JxN * NxK => JxK
         //   Note:
         //     Not only does the matrix multiplication compute gradients with
@@ -170,15 +163,22 @@ impl Network {
         for l in 2..self.num_layers() {
             let z = &zs[zs.len() - l];
             let sp = N::prime(z);
-            let delta = self.weights[self.weights.len() - l + 1].t().dot(nabla_b.last().unwrap()) * sp;
+            let delta = self.weights[self.weights.len() - l + 1]
+                .t()
+                .dot(nabla_b.last().unwrap())
+                * sp;
             nabla_w.push(delta.dot(&activations.pop().unwrap().reversed_axes()));
             nabla_b.push(delta);
         }
 
         // Sum nabla_b (nabla_w were already summed when performing matrix multiplications above)
         (
-            nabla_b.iter().map(|nb| nb.sum_axis(Axis(1))).rev().collect(),
-            nabla_w.into_iter().rev().collect()
+            nabla_b
+                .iter()
+                .map(|nb| nb.sum_axis(Axis(1)))
+                .rev()
+                .collect(),
+            nabla_w.into_iter().rev().collect(),
         )
     }
 
@@ -191,49 +191,48 @@ impl Network {
         self.sizes.len()
     }
 
-    fn total_loss<L>(
-        &self, dataset: &Dataset, lmbda: f32, batch_size: usize
-    ) -> f32
+    fn total_loss<L>(&self, dataset: &Dataset, lmbda: f32, batch_size: usize) -> f32
     where
         L: Loss,
     {
-        let vanilla_loss = dataset.iter(batch_size, false).map(
-            |[images, labels]| {
+        let vanilla_loss = dataset
+            .iter(batch_size, false)
+            .map(|[images, labels]| {
                 let outputs = self.feedforward::<Sigmoid>(images);
                 L::func(&outputs, &labels)
-            }
-        ).sum::<f32>();
-        let l2_term = 0.5 * lmbda * self.weights.iter().map(
-            |w| (w * w).sum()
-        ).sum::<f32>();
+            })
+            .sum::<f32>();
+        let l2_term = 0.5 * lmbda * self.weights.iter().map(|w| (w * w).sum()).sum::<f32>();
         (vanilla_loss + l2_term) / dataset.len() as f32
     }
 
     fn accuracy(&self, dataset: &Dataset, batch_size: usize) -> usize {
-        dataset.iter(batch_size, false).map(|[images, labels]| {
-            let outputs = self.feedforward::<Sigmoid>(images);
-            let preds = outputs.columns().into_iter().map(|c| {
-                c.into_iter()
-                    .enumerate()
-                    // No Infs and NaNs so we can simply use partial_cmp() here
-                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-                    .map(|(idx, _)| idx).unwrap()
-            });
-            let truths = labels.columns().into_iter().map(|c| {
-                c.into_iter().position(|&e| 1.0 == e).unwrap()
-            });
-            iter::zip(preds, truths).map(
-                |(p, t)| (p == t) as usize
-            ).sum::<usize>()
-        }).sum()
+        dataset
+            .iter(batch_size, false)
+            .map(|[images, labels]| {
+                let outputs = self.feedforward::<Sigmoid>(images);
+                let preds = outputs.columns().into_iter().map(|c| {
+                    c.into_iter()
+                        .enumerate()
+                        // No Infs and NaNs so we can simply use partial_cmp() here
+                        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+                        .map(|(idx, _)| idx)
+                        .unwrap()
+                });
+                let truths = labels
+                    .columns()
+                    .into_iter()
+                    .map(|c| c.into_iter().position(|&e| 1.0 == e).unwrap());
+                iter::zip(preds, truths)
+                    .map(|(p, t)| (p == t) as usize)
+                    .sum::<usize>()
+            })
+            .sum()
     }
 
     fn feedforward<'a, N: Activation>(&self, inputs: C2<'a>) -> C2<'a> {
-        iter::zip(self.biases.iter(), self.weights.iter()).fold(
-            inputs,
-            |a, (b, w)| {
-                C2::from(N::call(&Self::make_weighted_inputs(&a, w, b)))
-            },
-        )
+        iter::zip(self.biases.iter(), self.weights.iter()).fold(inputs, |a, (b, w)| {
+            C2::from(N::call(&Self::make_weighted_inputs(&a, w, b)))
+        })
     }
 }

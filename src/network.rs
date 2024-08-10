@@ -1,10 +1,9 @@
-#![allow(dead_code)] // TODO
-
 use std::iter;
 
 use ndarray::Axis;
+use serde::{Serialize, Deserialize};
 
-use super::{ activations::*, common::*, losses::*, wb_initializers::* };
+use super::{activations::*, common::*, losses::*, wb_initializers::*};
 
 
 pub struct Metrics {
@@ -15,6 +14,7 @@ pub struct Metrics {
 }
 
 
+#[derive(Serialize, Deserialize)]
 pub struct Network {
     sizes: Vec<usize>,
     biases: Vec<A1>,

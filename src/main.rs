@@ -1,6 +1,7 @@
 use std::time::Instant;
 
-use nndl::{ data_loader, losses::*, network::{ Metrics, Network } };
+use nndl::{data_loader, losses::*, network::{Metrics, Network}};
+
 
 fn main() {
     let [trn_data, val_data, _] = data_loader::load_mnist("tmp/mnist");

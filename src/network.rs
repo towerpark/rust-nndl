@@ -3,7 +3,13 @@ use std::iter;
 use ndarray::Axis;
 use serde::{Deserialize, Serialize};
 
-use super::{activations::*, common::*, losses::*, wb_initializers::*};
+use super::{
+    activations::*,
+    common::*,
+    losses::*,
+    regularizations::Regularization,
+    wb_initializers::*,
+};
 
 pub struct Metrics {
     pub training_loss: Option<Vec<f32>>,
@@ -45,7 +51,7 @@ impl Network {
         epochs: usize,
         mini_batch_size: usize,
         eta: f32,
-        lmbda: f32,
+        reg: &Regularization,
         evaluation_data: Option<Dataset>,
         metrics: &mut Metrics,
     ) where
@@ -59,13 +65,13 @@ impl Network {
             println!("====== Epoch {} started ======", i);
 
             training_data.iter(mini_batch_size, true).for_each(|batch| {
-                self.update_mini_batch::<L>(batch, eta, lmbda, training_data.len())
+                self.update_mini_batch::<L>(batch, eta, reg, training_data.len())
             });
             println!("Training complete");
 
             // Calculate metrics
             if let Some(ref mut tl) = metrics.training_loss {
-                let loss = self.total_loss::<L>(&training_data, lmbda, mini_batch_size);
+                let loss = self.total_loss::<L>(&training_data, reg, mini_batch_size);
                 tl.push(loss);
                 println!("Loss on training data: {:.4}", loss);
             }
@@ -81,7 +87,7 @@ impl Network {
             }
             if let Some(ref eval_data) = evaluation_data {
                 if let Some(ref mut el) = metrics.evaluation_loss {
-                    let loss = self.total_loss::<L>(eval_data, lmbda, mini_batch_size);
+                    let loss = self.total_loss::<L>(eval_data, reg, mini_batch_size);
                     el.push(loss);
                     println!("Loss on evaluation data: {:.4}", loss);
                 }
@@ -101,14 +107,18 @@ impl Network {
         }
     }
 
-    fn update_mini_batch<L>(&mut self, mini_batch: [C2; 2], eta: f32, lmbda: f32, n: usize)
-    where
+    fn update_mini_batch<L>(
+        &mut self,
+        mini_batch: [C2; 2],
+        eta: f32,
+        reg: &Regularization,
+        n: usize,
+    ) where
         L: Loss,
     {
         // Batch size is the length of axis 0 because inputs are column vectors
         let batch_size = mini_batch[0].len_of(Axis(1));
         let scale = eta / (batch_size as f32);
-        let weight_decay = 1.0 - eta * lmbda / n as f32;
 
         let (nabla_b, nabla_w) = self.backprop::<Sigmoid, L>(mini_batch);
 
@@ -116,10 +126,9 @@ impl Network {
             .iter_mut()
             .zip(nabla_b)
             .for_each(|(b, nb)| *b -= &(scale * nb));
-        self.weights
-            .iter_mut()
-            .zip(nabla_w)
-            .for_each(|(w, nw)| *w = weight_decay * &*w - &(scale * nw));
+        self.weights.iter_mut().zip(nabla_w).for_each(|(w, nw)| {
+            *w = &*w - eta * (nw / batch_size as f32 + reg.extra_gradient(n, w))
+        });
     }
 
     // Return the gradients of weights and biases for all the layers computed
@@ -191,7 +200,7 @@ impl Network {
         self.sizes.len()
     }
 
-    fn total_loss<L>(&self, dataset: &Dataset, lmbda: f32, batch_size: usize) -> f32
+    fn total_loss<L>(&self, dataset: &Dataset, reg: &Regularization, batch_size: usize) -> f32
     where
         L: Loss,
     {
@@ -202,8 +211,7 @@ impl Network {
                 L::func(&outputs, &labels)
             })
             .sum::<f32>();
-        let l2_term = 0.5 * lmbda * self.weights.iter().map(|w| (w * w).sum()).sum::<f32>();
-        (vanilla_loss + l2_term) / dataset.len() as f32
+        vanilla_loss / dataset.len() as f32 + reg.extra_loss(dataset.len(), &self.weights)
     }
 
     fn accuracy(&self, dataset: &Dataset, batch_size: usize) -> usize {

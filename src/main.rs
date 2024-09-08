@@ -2,12 +2,18 @@ use std::time::Instant;
 
 use nndl::{
     data_loader,
+    early_stop::EarlyStop,
     losses::*,
     network::{Metrics, Network},
     regularizations::Regularization,
 };
 
 fn main() {
+    let es_strategy =
+        EarlyStop::unable_to_beat_best(5)
+        // EarlyStop::no_inc(5)
+        .expect("Early stop strategy should be created successfully.");
+
     let [trn_data, val_data, _] = data_loader::load_mnist("tmp/mnist");
     let mut net = Network::new(vec![784, 30, 10]);
 
@@ -20,12 +26,39 @@ fn main() {
     let start_time = Instant::now();
     net.sgd::<CrossEntropyLoss>(
         trn_data,
-        30,
+        100,
         10,
         0.5, // Learning rate: 3.0 for MSE loss, 0.5 for cross-entropy loss
-        &Regularization::L1(2.5), // Zero | L2(5.0)
+        &Regularization::L2(5.0), // Zero | L1(2.5)
         Some(val_data),
         &mut metrics,
+        es_strategy,
     );
-    println!("Done: time({:?})", start_time.elapsed());
+
+    let elapsed = start_time.elapsed();
+    let [train_min_loss, eval_min_loss] = [metrics.training_loss, metrics.evaluation_loss].map(
+        |m| m
+            .unwrap_or(vec![])
+            .into_iter()
+            .filter(|l| l.is_finite())
+            .min_by(|a, b| a.partial_cmp(b).unwrap())
+            .map_or("N/A".into(), |v| format!("{:.4}", v))
+    );
+    let [train_max_acc, eval_max_acc] = [metrics.training_accuracy, metrics.evaluation_accuracy].map(
+        |m| m
+            .unwrap_or(vec![])
+            .into_iter()
+            .filter(|l| l.is_finite())
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .map_or("N/A".into(), |v| format!("{:.2}%", v * 100.0))
+    );
+    println!(
+        "Done: time({:?}), train_min_loss({}), train_max_accuracy({}), \
+            eval_min_loss({}), eval_max_accuracy({})",
+        elapsed,
+        train_min_loss,
+        train_max_acc,
+        eval_min_loss,
+        eval_max_acc,
+    );
 }

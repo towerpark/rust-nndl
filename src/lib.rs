@@ -1,5 +1,6 @@
 pub mod activations;
 pub mod data_loader;
+pub mod early_stop;
 pub mod losses;
 pub mod network;
 pub mod recorders;

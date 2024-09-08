@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     activations::*,
     common::*,
+    early_stop::EarlyStop,
     losses::*,
     regularizations::Regularization,
     wb_initializers::*,
@@ -13,9 +14,9 @@ use super::{
 
 pub struct Metrics {
     pub training_loss: Option<Vec<f32>>,
-    pub training_accuracy: Option<Vec<usize>>,
+    pub training_accuracy: Option<Vec<f32>>,
     pub evaluation_loss: Option<Vec<f32>>,
-    pub evaluation_accuracy: Option<Vec<usize>>,
+    pub evaluation_accuracy: Option<Vec<f32>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -54,6 +55,7 @@ impl Network {
         reg: &Regularization,
         evaluation_data: Option<Dataset>,
         metrics: &mut Metrics,
+        mut es_strategy: EarlyStop,
     ) where
         L: Loss,
     {
@@ -61,7 +63,8 @@ impl Network {
         let num_of_batches = data_size / mini_batch_size;
         println!("Number of training samples: {}", data_size);
         println!("Number of mini-batches: {}", num_of_batches);
-        for i in 0..epochs {
+        let mut i = 0usize;
+        while i < epochs && !es_strategy.should_stop(metrics) {
             println!("====== Epoch {} started ======", i);
 
             training_data.iter(mini_batch_size, true).for_each(|batch| {
@@ -78,12 +81,7 @@ impl Network {
             if let Some(ref mut ta) = metrics.training_accuracy {
                 let acc = self.accuracy(&training_data, mini_batch_size);
                 ta.push(acc);
-                println!(
-                    "Accuracy on training data: {}/{} ({:.2}%)",
-                    acc,
-                    training_data.len(),
-                    100.0 * acc as f32 / training_data.len() as f32,
-                );
+                println!("Accuracy on training data: {:.2}%", 100.0 * acc);
             }
             if let Some(ref eval_data) = evaluation_data {
                 if let Some(ref mut el) = metrics.evaluation_loss {
@@ -94,16 +92,16 @@ impl Network {
                 if let Some(ref mut ea) = metrics.evaluation_accuracy {
                     let acc = self.accuracy(&eval_data, mini_batch_size);
                     ea.push(acc);
-                    println!(
-                        "Accuracy on evaluation data: {}/{} ({:.2}%)",
-                        acc,
-                        eval_data.len(),
-                        100.0 * acc as f32 / eval_data.len() as f32,
-                    );
+                    println!("Accuracy on evaluation data: {:.2}%", 100.0 * acc);
                 }
             }
 
             println!("====== Epoch {} done ======\n", i);
+            i += 1;
+        }
+
+        if i < epochs {
+            println!("====== Early stopped ======");
         }
     }
 
@@ -214,7 +212,7 @@ impl Network {
         vanilla_loss / dataset.len() as f32 + reg.extra_loss(dataset.len(), &self.weights)
     }
 
-    fn accuracy(&self, dataset: &Dataset, batch_size: usize) -> usize {
+    fn accuracy(&self, dataset: &Dataset, batch_size: usize) -> f32 {
         dataset
             .iter(batch_size, false)
             .map(|[images, labels]| {
@@ -235,7 +233,7 @@ impl Network {
                     .map(|(p, t)| (p == t) as usize)
                     .sum::<usize>()
             })
-            .sum()
+            .sum::<usize>() as f32 / dataset.len() as f32
     }
 
     fn feedforward<'a, N: Activation>(&self, inputs: C2<'a>) -> C2<'a> {

@@ -4,11 +4,7 @@ use ndarray::Axis;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    activations::*,
-    common::*,
-    early_stop::EarlyStop,
-    losses::*,
-    regularizations::Regularization,
+    activations::*, common::*, early_stop::EarlyStop, losses::*, regularizations::Regularization,
     wb_initializers::*,
 };
 
@@ -233,7 +229,8 @@ impl Network {
                     .map(|(p, t)| (p == t) as usize)
                     .sum::<usize>()
             })
-            .sum::<usize>() as f32 / dataset.len() as f32
+            .sum::<usize>() as f32
+            / dataset.len() as f32
     }
 
     fn feedforward<'a, N: Activation>(&self, inputs: C2<'a>) -> C2<'a> {

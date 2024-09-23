@@ -50,13 +50,19 @@ impl EarlyStop {
 
         let cur_epoch = acc.len() - 1;
         match self {
-            Self::UnableToBeatBest {window_size, best_epoch} => {
+            Self::UnableToBeatBest {
+                window_size,
+                best_epoch,
+            } => {
                 if acc[cur_epoch] > acc[*best_epoch] {
                     *best_epoch = cur_epoch;
                 }
                 cur_epoch - *best_epoch == *window_size
-            },
-            Self::NoInc {window_size, stop_at} => {
+            }
+            Self::NoInc {
+                window_size,
+                stop_at,
+            } => {
                 if cur_epoch >= 1 && acc[cur_epoch] > acc[cur_epoch - 1] {
                     *stop_at = cur_epoch + *window_size;
                 }
@@ -65,4 +71,3 @@ impl EarlyStop {
         }
     }
 }
-

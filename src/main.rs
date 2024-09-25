@@ -4,14 +4,18 @@ use nndl::{
     data_loader,
     early_stop::EarlyStop,
     losses::*,
+    lr_schedulers::*,
     network::{Metrics, Network},
     regularizations::Regularization,
 };
 
 fn main() {
-    let es_strategy = EarlyStop::unable_to_beat_best(5)
+    let es_strategy = EarlyStop::unable_to_beat_best(10)
         // EarlyStop::no_inc(5)
         .expect("Early stop strategy should be created successfully.");
+
+    let init_lr = 0.5; // 3.0 for MSE loss and 0.5 for cross-entropy loss
+    let lr_schd = AccuracyLrScheduler::new(init_lr, init_lr / 128 as f32, 0.5, 5).unwrap();
 
     let [trn_data, val_data, _] = data_loader::load_mnist("tmp/mnist");
     let mut net = Network::new(vec![784, 30, 10]);
@@ -27,7 +31,7 @@ fn main() {
         trn_data,
         100,
         10,
-        0.5,                      // Learning rate: 3.0 for MSE loss, 0.5 for cross-entropy loss
+        lr_schd, // Learning rate: 3.0 for MSE loss, 0.5 for cross-entropy loss
         &Regularization::L2(5.0), // Zero | L1(2.5)
         Some(val_data),
         &mut metrics,

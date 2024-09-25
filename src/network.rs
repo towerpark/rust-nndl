@@ -4,8 +4,8 @@ use ndarray::Axis;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    activations::*, common::*, early_stop::EarlyStop, losses::*, regularizations::Regularization,
-    wb_initializers::*,
+    activations::*, common::*, early_stop::EarlyStop, losses::*, lr_schedulers::LrScheduler,
+    regularizations::Regularization, wb_initializers::*,
 };
 
 pub struct Metrics {
@@ -47,7 +47,7 @@ impl Network {
         training_data: Dataset,
         epochs: usize,
         mini_batch_size: usize,
-        eta: f32,
+        mut lr_schd: impl LrScheduler,
         reg: &Regularization,
         evaluation_data: Option<Dataset>,
         metrics: &mut Metrics,
@@ -61,7 +61,8 @@ impl Network {
         println!("Number of mini-batches: {}", num_of_batches);
         let mut i = 0usize;
         while i < epochs && !es_strategy.should_stop(metrics) {
-            println!("====== Epoch {} started ======", i);
+            let eta = lr_schd.next(metrics);
+            println!("====== Epoch {i} started: LR({eta}) ======");
 
             training_data.iter(mini_batch_size, true).for_each(|batch| {
                 self.update_mini_batch::<L>(batch, eta, reg, training_data.len())

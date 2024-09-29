@@ -24,6 +24,8 @@ impl WBInitializer for WBInitializerDefault {
 
 pub struct WBInitializerLarge;
 
+// Biases and weights are initialized randomly, i.e., they follow Gaussian distributions with mean 0
+// and standard deviation 1.
 impl WBInitializer for WBInitializerLarge {
     fn make_weights(y: usize, x: usize) -> A2 {
         Array::random((y, x), StandardNormal)

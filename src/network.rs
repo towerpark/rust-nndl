@@ -19,6 +19,8 @@ pub struct Metrics {
 pub struct Network {
     sizes: Vec<usize>,
     biases: Vec<A1>,
+    // Weights of each layer are kept in a 2D array. For the N-th layer, sizes of the first and the
+    // second dimensions of the array equal sizes of the N-th and the (N-1)-th layers respectively.
     weights: Vec<A2>,
 }
 

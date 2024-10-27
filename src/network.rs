@@ -113,23 +113,19 @@ impl Network {
     ) where
         L: Loss,
     {
-        // Batch size is the length of axis 0 because inputs are column vectors
-        let batch_size = mini_batch[0].len_of(Axis(1));
-        let scale = eta / (batch_size as f32);
-
         let (nabla_b, nabla_w) = self.backprop::<Sigmoid, L>(mini_batch);
 
         self.biases
             .iter_mut()
             .zip(nabla_b)
-            .for_each(|(b, nb)| *b -= &(scale * nb));
+            .for_each(|(b, nb)| *b -= &(eta * nb));
         self.weights.iter_mut().zip(nabla_w).for_each(|(w, nw)| {
-            *w = &*w - eta * (nw / batch_size as f32 + reg.extra_gradient(n, w))
+            *w = &*w - eta * (nw + reg.extra_gradient(n, w))
         });
     }
 
-    // Return the gradients of weights and biases for all the layers computed
-    // with all the samples in the batch.
+    // Return the gradients of weights and biases for all the layers computed with all the samples
+    // in the batch. The gradients have already been averaged over the batch.
     // A weight gradient for a single layer is a JxK matrix, while a biase
     // graident is a J-sized column vector.
     fn backprop<N, L>(&self, inputs: [C2; 2]) -> (Vec<A1>, Vec<A2>)
@@ -140,6 +136,8 @@ impl Network {
         let mut nabla_b = Vec::<A2>::new();
         let mut nabla_w = Vec::<A2>::new();
         let [samples, truths] = inputs;
+        // Batch size is the length of axis 1 because inputs are column vectors
+        let batch_size = samples.len_of(Axis(1)) as f32;
 
         // feedforward
         //
@@ -181,10 +179,14 @@ impl Network {
         (
             nabla_b
                 .iter()
-                .map(|nb| nb.sum_axis(Axis(1)))
+                .map(|nb| nb.sum_axis(Axis(1)) / batch_size)
                 .rev()
                 .collect(),
-            nabla_w.into_iter().rev().collect(),
+            nabla_w
+                .into_iter()
+                .map(|nw| nw / batch_size)
+                .rev()
+                .collect(),
         )
     }
 

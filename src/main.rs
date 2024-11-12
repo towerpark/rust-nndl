@@ -33,6 +33,7 @@ fn main() {
         10,
         lr_schd, // Learning rate: 3.0 for MSE loss, 0.5 for cross-entropy loss
         &Regularization::L2(5.0), // Zero | L1(2.5)
+        0.3,
         Some(val_data),
         &mut metrics,
         es_strategy,

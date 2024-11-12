@@ -15,6 +15,11 @@ pub struct Metrics {
     pub evaluation_accuracy: Option<Vec<f32>>,
 }
 
+struct Velocities {
+    biases: Vec<A1>,
+    weights: Vec<A2>,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct Network {
     sizes: Vec<usize>,
@@ -51,6 +56,7 @@ impl Network {
         mini_batch_size: usize,
         mut lr_schd: impl LrScheduler,
         reg: &Regularization,
+        momentum: f32,
         evaluation_data: Option<Dataset>,
         metrics: &mut Metrics,
         mut es_strategy: EarlyStop,
@@ -61,13 +67,21 @@ impl Network {
         let num_of_batches = data_size / mini_batch_size;
         println!("Number of training samples: {}", data_size);
         println!("Number of mini-batches: {}", num_of_batches);
+        let mut v = Velocities {
+            biases: self.biases.iter().map(|b| A1::zeros(b.raw_dim())).collect(),
+            weights: self
+                .weights
+                .iter()
+                .map(|w| A2::zeros(w.raw_dim()))
+                .collect(),
+        };
         let mut i = 0usize;
         while i < epochs && !es_strategy.should_stop(metrics) {
             let eta = lr_schd.next(metrics);
             println!("====== Epoch {i} started: LR({eta}) ======");
 
             training_data.iter(mini_batch_size, true).for_each(|batch| {
-                self.update_mini_batch::<L>(batch, eta, reg, training_data.len())
+                self.update_mini_batch::<L>(batch, eta, reg, momentum, training_data.len(), &mut v)
             });
             println!("Training complete");
 
@@ -109,19 +123,42 @@ impl Network {
         mini_batch: [C2; 2],
         eta: f32,
         reg: &Regularization,
+        momentum: f32,
         n: usize,
+        velocities: &mut Velocities,
     ) where
         L: Loss,
     {
-        let (nabla_b, nabla_w) = self.backprop::<Sigmoid, L>(mini_batch);
+        // We could've done the three steps below in one pass, but that wouldn't improve speed much
+        // (about 1ms) and the code is easier to understand this way.
+        //
+        let (nabla_b, mut nabla_w) = self.backprop::<Sigmoid, L>(mini_batch);
 
-        self.biases
+        // Regularize
+        iter::zip(nabla_w.iter_mut(), self.weights.iter())
+            .for_each(|(nw, w)| *nw += &reg.extra_gradient(n, w));
+
+        // Accumulate velocities
+        velocities
+            .biases
             .iter_mut()
             .zip(nabla_b)
-            .for_each(|(b, nb)| *b -= &(eta * nb));
-        self.weights.iter_mut().zip(nabla_w).for_each(|(w, nw)| {
-            *w = &*w - eta * (nw + reg.extra_gradient(n, w))
-        });
+            .for_each(|(vb, nb)| *vb = momentum * (vb as &A1) - eta * nb);
+        velocities
+            .weights
+            .iter_mut()
+            .zip(nabla_w)
+            .for_each(|(vw, nw)| *vw = momentum * (vw as &A2) - eta * nw);
+
+        // Update weights and biases
+        self.biases
+            .iter_mut()
+            .zip(velocities.biases.iter())
+            .for_each(|(b, vb)| *b += vb);
+        self.weights
+            .iter_mut()
+            .zip(velocities.weights.iter())
+            .for_each(|(w, vw)| *w += vw);
     }
 
     // Return the gradients of weights and biases for all the layers computed with all the samples
